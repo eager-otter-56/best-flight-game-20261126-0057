@@ -122,7 +122,7 @@ export function drawMinimap(ctx, w, h, plane, state) {
   const [px, pz] = map(plane.x, plane.z);
   ctx.save();
   ctx.translate(px, pz);
-  ctx.rotate(-plane.heading);
+  ctx.rotate(plane.heading);
   ctx.fillStyle = '#ff5e4d';
   ctx.beginPath();
   ctx.moveTo(0, -7);

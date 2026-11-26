@@ -27,9 +27,12 @@ export function project(cam, w, h, x, y, z, out) {
   const dz = z - cam.z;
   const ch = Math.cos(cam.heading);
   const sh = Math.sin(cam.heading);
-  // world -> camera: forward is -z in world when heading is 0
-  let cx = dx * ch - dz * sh;
-  let cz = dx * sh + dz * ch;
+  // world -> camera: forward is (sin h, -cos h), right is (cos h, sin h);
+  // cx is the dot with right, cz the (negated) dot with forward. The signs
+  // matter: flip one and the world renders mirror-yawed — you steer at a
+  // gate and your true track carries you away from it.
+  let cx = dx * ch + dz * sh;
+  let cz = -dx * sh + dz * ch;
   let cy = dy;
   const cp = Math.cos(cam.pitch);
   const sp = Math.sin(cam.pitch);

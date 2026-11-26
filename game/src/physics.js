@@ -81,9 +81,12 @@ export function stepPlane(p, input, dt, groundAt) {
   p.pitch = clamp(p.pitch, -1.05, 0.8);
 
   // --- the turn: g·tan(bank)/v, plus adverse yaw and a touch of P-factor ---
+  // heading is a true bearing: forward = (sin h, -cos h), so a right bank
+  // (roll > 0) must INCREASE it. (A minus here mirrors the whole world
+  // against the compass the pilot is steering by.)
   const yawRate = (G * Math.tan(p.roll) / Math.max(p.speed, 24)) * 1.45;
-  p.heading -= yawRate * t;
-  p.heading += rollRate * 0.055 * t;
+  p.heading += yawRate * t;
+  p.heading -= rollRate * 0.055 * t; // adverse yaw drags the nose out of the roll
   p.heading -= (p.throttle - 0.35) * 0.012 * t * (56 / Math.max(p.speed, 28));
   const slipTarget = clamp((rollTarget - p.roll) * 1.1, -1, 1);
   p.slip += (slipTarget - p.slip) * (1 - Math.exp(-2.6 * t));
@@ -149,7 +152,7 @@ export function stepPlane(p, input, dt, groundAt) {
 }
 
 export function headingDegrees(p) {
-  const d = ((-p.heading * 180 / Math.PI) % 360 + 360) % 360;
+  const d = ((p.heading * 180 / Math.PI) % 360 + 360) % 360;
   return d;
 }
 
