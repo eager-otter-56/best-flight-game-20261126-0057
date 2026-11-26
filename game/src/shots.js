@@ -32,6 +32,12 @@ export function poseForShot(name) {
     state.nextRing = 3;
     state.ringsDone = 3;
     state.score = 465;
+  } else if (name === 'cockpit') {
+    Object.assign(plane, { x: 20, y: 52, z: 2680, heading: -0.01, pitch: -0.045, att: 0.03, roll: 0.03, speed: 41, throttle: 0.34, fuel: 64, gearDown: true, flaps: 1 });
+    state.nextRing = 8;
+    state.ringsDone = 8;
+    state.score = 1180;
+    return { plane, state, timeOfDay, view: 'cockpit' };
   } else if (name === 'sunset') {
     Object.assign(plane, { x: 1250, y: 330, z: 1500, heading: 2.35, pitch: 0.02, att: 0.055, roll: 0.28, speed: 61, throttle: 0.66, fuel: 58 });
     state.missionId = 'free';

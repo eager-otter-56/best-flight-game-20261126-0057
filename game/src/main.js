@@ -30,6 +30,7 @@ const glCanvas = document.getElementById('gl');
 const glWorld = glCanvas ? createGLWorld(glCanvas, { trees, town, clouds }) : null;
 
 let screen = 'title'; // title | flying | debrief
+let viewMode = 'chase'; // chase | cockpit (V toggles)
 let plane = createPlane();
 let state = createMissionState('rings');
 let timeOfDay = 'day';
@@ -59,13 +60,13 @@ function smoothedPlane(dt) {
     camSm.heading = plane.heading; camSm.pitch = plane.pitch; camSm.roll = plane.roll;
     camSm.ready = true;
   }
-  const k = 1 - Math.exp(-5.5 * dt);
+  const k = 1 - Math.exp(-9.5 * dt);
   let dh = plane.heading - camSm.heading;
   while (dh > Math.PI) dh -= Math.PI * 2;
   while (dh < -Math.PI) dh += Math.PI * 2;
   camSm.heading += dh * k;
   camSm.pitch += (plane.pitch - camSm.pitch) * k;
-  camSm.roll += (plane.roll - camSm.roll) * (1 - Math.exp(-7 * dt));
+  camSm.roll += (plane.roll - camSm.roll) * (1 - Math.exp(-11 * dt));
   return { ...plane, heading: camSm.heading, pitch: camSm.pitch, roll: camSm.roll };
 }
 
@@ -77,7 +78,7 @@ function render(t, dt = 0.016) {
       : plane;
     ctx.clearRect(0, 0, W, H);
     glWorld.draw({
-      plane: shown, camPlane, timeOfDay,
+      plane: shown, camPlane, timeOfDay, view: viewMode,
       ringStatus: RING_COURSE.map((r, i) => ringState(state, i)), t,
     });
     const target = nextTarget(state, plane);
@@ -85,6 +86,10 @@ function render(t, dt = 0.016) {
     drawHUD(ctx, W, H, plane, state, target, t);
     drawMinimap(ctx, W, H, plane, state);
     drawCockpit(ctx, W, H, plane, t);
+    ctx.font = '600 13px system-ui, sans-serif';
+    ctx.fillStyle = 'rgba(216,230,240,0.8)';
+    ctx.textAlign = 'left';
+    ctx.fillText(viewMode === 'cockpit' ? 'VIEW · COCKPIT — V: chase view' : 'VIEW · CHASE — V: cockpit view', 18, H - 16);
     // cinema vignette over the 3D view
     const vg = ctx.createRadialGradient(W / 2, H / 2, H * 0.42, W / 2, H / 2, H * 0.98);
     vg.addColorStop(0, 'rgba(4,8,14,0)');
@@ -134,13 +139,14 @@ function frame(now) {
       'An original island flight game — gates, landings and one careful fuel gauge.',
       '',
       'Press 1 · RING RUNNER      2 · HARBOUR LANDING      3 · FREE FLIGHT',
-      'Arrows steer · mouse drags the stick · Shift/Ctrl throttle · G gear · F flaps · R restart',
+      'Arrows steer · mouse drags the stick · Shift/Ctrl throttle · G gear · F flaps · V view · R restart',
     ]);
     if (input.missionPick) startMission(MISSIONS[input.missionPick - 1].id);
     else if (input.startRequested || input.pitch !== 0 || input.roll !== 0) startMission('rings');
   } else if (screen === 'flying') {
     if (input.pause) paused = !paused;
     if (input.restart) startMission(state.missionId);
+    if (input.toggleView) viewMode = viewMode === 'chase' ? 'cockpit' : 'chase';
     if (input.toggleGear) plane.gearDown = !plane.gearDown;
     if (input.toggleFlaps) plane.flaps = plane.flaps ? 0 : 1;
     if (!paused) {
@@ -179,6 +185,7 @@ if (shotName) {
     plane = pose.plane;
     state = pose.state;
     timeOfDay = pose.timeOfDay;
+    if (pose.view) viewMode = pose.view;
     screen = 'flying';
     render(2.4);
     document.body.dataset.shotReady = '1';

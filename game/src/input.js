@@ -4,7 +4,7 @@
 export function createInput(canvas) {
   const input = {
     pitch: 0, roll: 0, throttleUp: false, throttleDown: false,
-    toggleGear: false, toggleFlaps: false, restart: false, pause: false,
+    toggleGear: false, toggleFlaps: false, restart: false, pause: false, toggleView: false,
     startRequested: false, missionPick: 0,
   };
   const keys = new Set();
@@ -17,6 +17,7 @@ export function createInput(canvas) {
     if (e.repeat) return;
     keys.add(e.code);
     if (e.code === 'KeyG') input.toggleGear = true;
+    if (e.code === 'KeyV') input.toggleView = true;
     if (e.code === 'KeyF') input.toggleFlaps = true;
     if (e.code === 'KeyR') input.restart = true;
     if (e.code === 'KeyP' || e.code === 'Escape') input.pause = true;
@@ -65,6 +66,7 @@ export function createInput(canvas) {
   input.consume = () => {
     input.toggleGear = false;
     input.toggleFlaps = false;
+    input.toggleView = false;
     input.restart = false;
     input.pause = false;
     input.startRequested = false;

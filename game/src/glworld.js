@@ -420,11 +420,11 @@ function buildStatic(trees, town) {
 
 function buildAircraft() {
   const g = new FlatGeo();
-  const cream = hexRGB('#ece7db'); const orange = hexRGB('#d8542e');
-  const darkOrange = hexRGB('#b23f1e'); const glass = hexRGB('#2c5a78');
-  const dark = hexRGB('#33383e');
-  // streamlined fuselage: an ellipse-section tube, nose to tail
-  g.tube([
+  // a sober real-world scheme: white airframe, navy accents, dark glass
+  const cream = hexRGB('#eef0f2'); const orange = hexRGB('#274b73');
+  const darkOrange = hexRGB('#1b3552'); const glass = hexRGB('#1d2f3d');
+  const dark = hexRGB('#33383e'); const steel = hexRGB('#6a7076');
+  const stations = [
     { z: -9.7, rx: 0.30, ry: 0.32, y: 0.05 },
     { z: -8.8, rx: 0.94, ry: 1.04, y: 0.06 },
     { z: -6.2, rx: 1.24, ry: 1.34, y: 0.10 },
@@ -433,19 +433,35 @@ function buildAircraft() {
     { z: 4.8, rx: 1.05, ry: 1.10, y: 0.46 },
     { z: 7.6, rx: 0.64, ry: 0.70, y: 0.66 },
     { z: 9.4, rx: 0.30, ry: 0.36, y: 0.76 },
-  ], 10, cream);
+  ];
+  // streamlined fuselage: an ellipse-section tube, nose to tail
+  g.tube(stations, 10, cream);
   // cheatline stripes hugging the cabin sides
   g.box(-1.40, -0.38, -2.4, 0.07, 0.55, 7.6, orange);
   g.box(1.40, -0.38, -2.4, 0.07, 0.55, 7.6, orange);
+  // cabin side windows, a dark band under the wing
+  g.box(-1.41, 1.02, -1.5, 0.06, 0.62, 3.2, glass);
+  g.box(1.41, 1.02, -1.5, 0.06, 0.62, 3.2, glass);
   // canopy: glass over a body-colour sill
   g.box(0, 1.34, -1.7, 1.95, 0.35, 3.9, cream);
   g.box(0, 1.72, -1.7, 1.72, 0.62, 3.5, glass);
-  // main wing: tapered slabs with dihedral, red tips
-  g.slab([1.1, 1.72, -2.7], [1.1, 1.72, 0.9], [12.4, 2.42, -1.9], [12.4, 2.42, 0.35], 0.34, orange, darkOrange);
-  g.slab([-1.1, 1.72, -2.7], [-1.1, 1.72, 0.9], [-12.4, 2.42, -1.9], [-12.4, 2.42, 0.35], 0.34, orange, darkOrange);
+  // main wing: tapered slabs with dihedral, navy tips, navigation lights
+  g.slab([1.1, 1.72, -2.7], [1.1, 1.72, 0.9], [12.4, 2.42, -1.9], [12.4, 2.42, 0.35], 0.34, cream, darkOrange);
+  g.slab([-1.1, 1.72, -2.7], [-1.1, 1.72, 0.9], [-12.4, 2.42, -1.9], [-12.4, 2.42, 0.35], 0.34, cream, darkOrange);
+  g.box(-12.42, 2.36, -0.8, 0.22, 0.18, 0.5, [1.0, 0.16, 0.16]); // port: red
+  g.box(12.42, 2.36, -0.8, 0.22, 0.18, 0.5, [0.16, 1.0, 0.36]);  // starboard: green
+  // wing struts, fuselage to mid-span (the high-wing giveaway)
+  for (const sx of [-1, 1]) {
+    for (const off of [-0.08, 0.08]) {
+      const a = [sx * 1.02, -0.78, -1.15 + off]; const b = [sx * 5.6, 1.60, -1.15 + off];
+      const aT = [a[0], a[1] + 0.2, a[2]]; const bT = [b[0], b[1] + 0.2, b[2]];
+      g.quad(a, b, bT, aT, steel);
+      g.quad(a, aT, bT, b, steel);
+    }
+  }
   // tailplane, same treatment
-  g.slab([0.7, 0.98, 6.9], [0.7, 0.98, 9.1], [5.1, 1.12, 7.3], [5.1, 1.12, 8.9], 0.22, orange, darkOrange);
-  g.slab([-0.7, 0.98, 6.9], [-0.7, 0.98, 9.1], [-5.1, 1.12, 7.3], [-5.1, 1.12, 8.9], 0.22, orange, darkOrange);
+  g.slab([0.7, 0.98, 6.9], [0.7, 0.98, 9.1], [5.1, 1.12, 7.3], [5.1, 1.12, 8.9], 0.22, cream, darkOrange);
+  g.slab([-0.7, 0.98, 6.9], [-0.7, 0.98, 9.1], [-5.1, 1.12, 7.3], [-5.1, 1.12, 8.9], 0.22, cream, darkOrange);
   // swept fin: two side faces plus caps
   const finP = [[6.5, 0.95], [7.5, 4.35], [9.15, 4.35], [9.5, 1.0]]; // [z, y]
   const fx = 0.11;
@@ -456,8 +472,28 @@ function buildAircraft() {
   g.quad(fm[0], fm[3], fp[3], fp[0], darkOrange);
   // spinner: a proper cone along the thrust line
   g.coneZ(0, 0.06, -9.55, -11.0, 0.60, 10, dark);
+  // antenna mast and a pitot tube under the port wing
+  g.box(0, 1.88, 1.8, 0.07, 0.55, 0.28, dark);
+  g.box(-6.2, 1.70, -1.3, 0.07, 0.6, 0.07, dark);
   // exhaust stub
   g.box(0.9, -0.95, -7.6, 0.35, 0.3, 1.1, dark);
+  // the nose on its own, for the cockpit view: cowl section + spinner, with
+  // a dark glareshield cap where the windshield would rise
+  const nose = new FlatGeo();
+  nose.tube(stations.slice(0, 4), 10, cream);
+  {
+    const s = stations[3]; const seg = 10;
+    const ctr = [0, s.y, s.z + 0.06];
+    for (let k = 0; k < seg; k++) {
+      const a0 = (k / seg) * Math.PI * 2; const a1 = ((k + 1) / seg) * Math.PI * 2;
+      nose.tri([Math.cos(a0) * s.rx, s.y + Math.sin(a0) * s.ry, s.z + 0.06],
+        [Math.cos(a1) * s.rx, s.y + Math.sin(a1) * s.ry, s.z + 0.06], ctr, hexRGB('#22252a'));
+    }
+  }
+  nose.box(-1.14, -0.38, -7.6, 0.07, 0.5, 2.2, orange);
+  nose.box(1.14, -0.38, -7.6, 0.07, 0.5, 2.2, orange);
+  nose.coneZ(0, 0.06, -9.55, -11.0, 0.60, 10, dark);
+  nose.box(0.9, -0.95, -7.6, 0.35, 0.3, 1.1, dark);
   const gear = new FlatGeo();
   const wheel = hexRGB('#22252a');
   gear.box(-1.6, -2.3, -0.9, 0.3, 2.4, 0.3, dark);
@@ -472,13 +508,23 @@ function buildAircraft() {
     }
   }
   const blades = new FlatGeo();
-  blades.box(0, 0, 0, 0.34, 5.8, 0.14, dark);
+  // three blades at 120 degrees, tapered toward the tips
+  for (let b = 0; b < 3; b++) {
+    const a = (b / 3) * Math.PI * 2;
+    const dx = Math.cos(a); const dy = Math.sin(a);
+    const px = -dy * 0.17; const py = dx * 0.17;
+    const root = [dx * 0.45, dy * 0.45, 0]; const tip = [dx * 2.85, dy * 2.85, 0];
+    blades.quad(
+      [root[0] - px, root[1] - py, 0], [root[0] + px, root[1] + py, 0],
+      [tip[0] + px * 0.72, tip[1] + py * 0.72, 0], [tip[0] - px * 0.72, tip[1] - py * 0.72, 0], dark);
+  }
+  blades.box(0, 0, 0, 0.5, 0.5, 0.3, dark);
   const disc = new FlatGeo();
   for (let i = 0; i < 18; i++) {
     const a0 = (i / 18) * Math.PI * 2; const a1 = ((i + 1) / 18) * Math.PI * 2;
     disc.tri([0, 0, 0], [Math.cos(a0) * 2.9, Math.sin(a0) * 2.9, 0], [Math.cos(a1) * 2.9, Math.sin(a1) * 2.9, 0], hexRGB('#2a2c30'));
   }
-  return { body: g, gear, blades, disc };
+  return { body: g, gear, blades, disc, nose };
 }
 
 function buildRingGeo() {
@@ -598,6 +644,7 @@ export function createGLWorld(canvas, { trees, town, clouds }) {
   const staticMesh = uploadMesh(buildStatic(trees, town));
   const ac = buildAircraft();
   const acMesh = uploadMesh(ac.body);
+  const noseMesh = uploadMesh(ac.nose);
   const gearMesh = uploadMesh(ac.gear);
   const bladeMesh = uploadMesh(ac.blades);
   const discMesh = uploadMesh(ac.disc);
@@ -668,21 +715,59 @@ export function createGLWorld(canvas, { trees, town, clouds }) {
     else gl.drawArrays(gl.TRIANGLES, 0, m.count);
   }
 
-  function draw({ plane, camPlane, timeOfDay, ringStatus, t }) {
+  function draw({ plane, camPlane, timeOfDay, ringStatus, t, view: viewMode = 'chase' }) {
     const tod = TOD[timeOfDay] || TOD.day;
+    // the aeroplane's attitude basis (nose f, right rP, up uP) — used by the
+    // cockpit camera, the model pose and the shadow pass alike
+    const att = plane.att !== undefined ? plane.att : plane.pitch;
+    const ph = plane.heading;
+    const f = [Math.sin(ph) * Math.cos(att), Math.sin(att), -Math.cos(ph) * Math.cos(att)];
+    let arx = -f[2]; let arz = f[0];
+    const al = Math.hypot(arx, arz) || 1; arx /= al; arz /= al;
+    const r0 = [arx, 0, arz];
+    const u0 = [
+      r0[1] * f[2] - r0[2] * f[1],
+      r0[2] * f[0] - r0[0] * f[2],
+      r0[0] * f[1] - r0[1] * f[0],
+    ];
+    const cr = Math.cos(plane.roll); const sr = Math.sin(plane.roll);
+    const rP = r0.map((v, i) => v * cr - u0[i] * sr);
+    const uP = u0.map((v, i) => v * cr + r0[i] * sr);
+
     const h = camPlane.heading; const cpt = camPlane.pitch;
     const cf = [Math.sin(h) * Math.cos(cpt), Math.sin(cpt), -Math.cos(h) * Math.cos(cpt)];
-    const eye = [plane.x - cf[0] * 30, plane.y - cf[1] * 30 + 7.5, plane.z - cf[2] * 30];
-    const center = [plane.x + cf[0] * 40, plane.y + cf[1] * 40, plane.z + cf[2] * 40];
-    let rx = -cf[2]; let rz = cf[0];
-    const rl = Math.hypot(rx, rz) || 1; rx /= rl; rz /= rl;
-    const A = camPlane.roll * 0.55;
-    const up = [rx * Math.sin(A), Math.cos(A), rz * Math.sin(A)];
-    const view = lookAt(eye, center, up);
+    let eye; let view; let fwd;
+    if (viewMode === 'cockpit') {
+      // first person: the pilot's eye, inside the canopy — the horizon rolls
+      // with the aeroplane and the nose and propeller stay in frame
+      eye = [
+        plane.x + uP[0] * 1.95 + f[0] * 0.5,
+        plane.y + uP[1] * 1.95 + f[1] * 0.5,
+        plane.z + uP[2] * 1.95 + f[2] * 0.5,
+      ];
+      view = lookAt(eye, [eye[0] + f[0], eye[1] + f[1], eye[2] + f[2]], uP);
+      fwd = f;
+    } else {
+      eye = [plane.x - cf[0] * 30, plane.y - cf[1] * 30 + 7.5, plane.z - cf[2] * 30];
+      // aim mostly where the aeroplane actually points, not where the
+      // smoothed chase heading has got to — turns feel answered at once
+      const aim = [
+        cf[0] * 0.35 + f[0] * 0.65,
+        cf[1] * 0.35 + f[1] * 0.65,
+        cf[2] * 0.35 + f[2] * 0.65,
+      ];
+      const center = [plane.x + aim[0] * 40, plane.y + aim[1] * 40, plane.z + aim[2] * 40];
+      let rx = -cf[2]; let rz = cf[0];
+      const rl = Math.hypot(rx, rz) || 1; rx /= rl; rz /= rl;
+      const A = camPlane.roll * 0.55;
+      const up = [rx * Math.sin(A), Math.cos(A), rz * Math.sin(A)];
+      view = lookAt(eye, center, up);
+      fwd = cf;
+    }
     const fovScale = 1 + Math.max(0, Math.min(0.30, (plane.speed - 38) / 220));
     const fovY = 2 * Math.atan(Math.tan(0.541) / fovScale);
     const vp = multiply(perspective(fovY, W / H, 0.5, 12000), view);
-    lastVP = vp; lastCamPos = eye; lastFwd = cf;
+    lastVP = vp; lastCamPos = eye; lastFwd = fwd;
 
     // sun shadow pass: render the world depth from the sun's viewpoint
     let shadowVP = null;
@@ -794,25 +879,16 @@ export function createGLWorld(canvas, { trees, town, clouds }) {
       drawMesh(ringMesh, m, vp, { tint, flat: 0.45 });
     });
 
-    // the aeroplane, posed by attitude (nose first, path follows)
-    const att = plane.att !== undefined ? plane.att : plane.pitch;
-    const ph = plane.heading;
-    const f = [Math.sin(ph) * Math.cos(att), Math.sin(att), -Math.cos(ph) * Math.cos(att)];
-    let arx = -f[2]; let arz = f[0];
-    const al = Math.hypot(arx, arz) || 1; arx /= al; arz /= al;
-    const r0 = [arx, 0, arz];
-    const u0 = [
-      r0[1] * f[2] - r0[2] * f[1],
-      r0[2] * f[0] - r0[0] * f[2],
-      r0[0] * f[1] - r0[1] * f[0],
-    ];
-    const cr = Math.cos(plane.roll); const sr = Math.sin(plane.roll);
-    const rP = r0.map((v, i) => v * cr - u0[i] * sr);
-    const uP = u0.map((v, i) => v * cr + r0[i] * sr);
+    // the aeroplane, posed by attitude (nose first, path follows); in the
+    // cockpit view only the nose cowl is drawn — the pilot sits inside it
     const acModel = basisMatrix(plane.x, plane.y, plane.z, rP, uP, f.map((v) => -v));
     lastACModel = acModel;
-    drawMesh(acMesh, acModel, vp, { texAmt: 0.05, spec: 0.32 });
-    if (plane.gearDown) drawMesh(gearMesh, acModel, vp, { texAmt: 0.05, spec: 0.3 });
+    if (viewMode === 'cockpit') {
+      drawMesh(noseMesh, acModel, vp, { texAmt: 0.05, spec: 0.32 });
+    } else {
+      drawMesh(acMesh, acModel, vp, { texAmt: 0.05, spec: 0.32 });
+      if (plane.gearDown) drawMesh(gearMesh, acModel, vp, { texAmt: 0.05, spec: 0.3 });
+    }
     const propBase = multiply(acModel, translation(0, 0.06, -9.8));
     gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     gl.depthMask(false);
