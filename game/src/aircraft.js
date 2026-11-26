@@ -14,16 +14,20 @@ export function drawAircraft(ctx, w, h, plane, input, t, groundBelow) {
   ctx.rotate(bank * 0.55);
   ctx.scale(scale, scale);
 
-  // wing shadow of speed: faint motion streaks at high speed
-  if (plane.speed > 78) {
-    ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+  // slipstream streaks that stretch with speed, so the air itself shows motion
+  if (plane.speed > 46) {
+    const stretch = Math.min(1, (plane.speed - 46) / 55);
+    ctx.strokeStyle = `rgba(255,255,255,${0.10 + stretch * 0.22})`;
     ctx.lineWidth = 2;
-    for (const [sx, sy, len] of [[-190, -30, 60], [185, -24, 52], [-160, 44, 44], [168, 50, 40]]) {
+    const rows = [[-190, -30], [185, -24], [-160, 44], [168, 50], [-215, 8], [212, 14], [-140, -64], [150, -58]];
+    rows.forEach(([sx, sy], i) => {
+      const len = (34 + (i % 3) * 14) * (0.5 + stretch);
+      const wob = Math.sin(t * 31 + i * 1.7) * 2;
       ctx.beginPath();
-      ctx.moveTo(sx, sy);
-      ctx.lineTo(sx + (sx < 0 ? -len : len), sy);
+      ctx.moveTo(sx, sy + wob);
+      ctx.lineTo(sx + (sx < 0 ? -len : len), sy + wob);
       ctx.stroke();
-    }
+    });
   }
 
   // main wing (seen from behind-above), ailerons deflect with roll input

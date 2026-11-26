@@ -16,6 +16,8 @@ export function makeCamera(plane, chase) {
     z: plane.z - fz * back,
     heading: plane.heading, pitch: plane.pitch, roll: plane.roll,
     fx, fy, fz,
+    // the lens opens up as speed builds, so fast flight feels fast
+    fovScale: 1 + Math.max(0, Math.min(0.30, (plane.speed - 38) / 220)),
   };
 }
 
@@ -42,7 +44,7 @@ export function project(cam, w, h, x, y, z, out) {
   cx = rx;
   cy = ry;
   if (cz >= -2) return null;
-  const f = (h * 0.92) / -cz;
+  const f = (h * 0.92 * (cam.fovScale || 1)) / -cz;
   out.x = w / 2 + cx * f;
   out.y = h * 0.46 - cy * f;
   out.s = f;
@@ -92,9 +94,27 @@ export function drawSky(ctx, w, h, cam, timeOfDay) {
   ctx.fill();
 }
 
-export function drawTerrain(ctx, w, h, cam) {
+function mixColour(colour, other, f) {
+  let r; let g; let b;
+  if (colour.startsWith('#')) {
+    const a = parseInt(colour.slice(1), 16);
+    r = (a >> 16) & 255; g = (a >> 8) & 255; b = a & 255;
+  } else {
+    const m = colour.match(/\d+(\.\d+)?/g);
+    r = +m[0]; g = +m[1]; b = +m[2];
+  }
+  return `rgb(${Math.round(r + (other[0] - r) * f)},${Math.round(g + (other[1] - g) * f)},${Math.round(b + (other[2] - b) * f)})`;
+}
+
+function quadHash(x, z) {
+  const s = Math.sin(x * 12.9898 + z * 78.233) * 43758.5453;
+  return s - Math.floor(s);
+}
+
+export function drawTerrain(ctx, w, h, cam, timeOfDay = 'day') {
   const RANGE = 3000;
   const STEP = 120;
+  const fogRGB = timeOfDay === 'sunset' ? [240, 178, 138] : [178, 205, 228];
   const cx0 = Math.round(cam.x / STEP) * STEP;
   const cz0 = Math.round(cam.z / STEP) * STEP;
   const quads = [];
@@ -127,9 +147,15 @@ export function drawTerrain(ctx, w, h, cam) {
     const hC = groundHeight(q.x + STEP / 2, q.z + STEP / 2);
     const slope = Math.abs(groundHeight(q.x + STEP, q.z) - groundHeight(q.x, q.z)) / STEP
       + Math.abs(groundHeight(q.x, q.z + STEP) - groundHeight(q.x, q.z)) / STEP;
-    const shade = Math.max(0.72, Math.min(1.08, 1 - slope * 0.35 + (hSum / 4) * 0.0004));
+    // directional sun shading: faces turned toward the low sun catch more light
+    const sunSlope = (groundHeight(q.x + STEP, q.z) - groundHeight(q.x - STEP, q.z)) / (STEP * 2);
+    const jitter = 0.94 + quadHash(q.x, q.z) * 0.12;
+    const shade = Math.max(0.62, Math.min(1.14, (1 - slope * 0.30 - sunSlope * 0.55 + (hSum / 4) * 0.0004) * jitter));
     ctx.globalAlpha = 1;
-    poly(ctx, pt, shadeColour(terrainColour(hC, slope, q.x, q.z), shade));
+    const base = shadeColour(terrainColour(hC, slope, q.x, q.z), shade);
+    // aerial perspective: distance melts into the horizon haze
+    const fogF = Math.min(0.62, Math.sqrt(q.d2) / 3400 * 0.72);
+    poly(ctx, pt, mixColour(base, fogRGB, fogF));
     // sea sparkle: a lighter skim on open water far away
     if (hC < 2 && q.d2 > 900000) {
       ctx.fillStyle = 'rgba(255,255,255,0.05)';

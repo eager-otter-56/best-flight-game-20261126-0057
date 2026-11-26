@@ -47,8 +47,13 @@ function startMission(id) {
 
 function render(t) {
   const cam = makeCamera(plane, true);
+  if (plane.stall) {
+    // buffet: the whole airframe shudders as the wing lets go
+    cam.x += Math.sin(t * 43) * 0.55;
+    cam.y += Math.cos(t * 37) * 0.45;
+  }
   drawSky(ctx, W, H, cam, timeOfDay);
-  drawTerrain(ctx, W, H, cam);
+  drawTerrain(ctx, W, H, cam, timeOfDay);
   drawScenery(ctx, W, H, cam, trees, town);
   drawRunway(ctx, W, H, cam, t);
   RING_COURSE.forEach((ring, i) => drawRing(ctx, W, H, cam, ring, ringState(state, i), t));
@@ -69,9 +74,14 @@ function frame(now) {
   input.poll();
 
   if (screen === 'title') {
-    // a slow orbiting attract view behind the title
-    plane.heading += dt * 0.05;
-    plane.y = 300 + Math.sin(elapsed * 0.3) * 24;
+    // the attract view actually flies: forward over the island on a wide,
+    // gentle circuit, high enough to clear the peaks
+    plane.heading += dt * 0.055;
+    plane.x += Math.sin(plane.heading) * 55 * dt;
+    plane.z += -Math.cos(plane.heading) * 55 * dt;
+    plane.y = 560 + Math.sin(elapsed * 0.3) * 30;
+    plane.roll = -0.32;
+    plane.speed = 55;
     render(elapsed);
     drawBanner(ctx, W, H, 'SKY HARBOR RUN', [
       'An original island flight game — gates, landings and one careful fuel gauge.',
@@ -80,7 +90,7 @@ function frame(now) {
       'Arrows steer · mouse drags the stick · Shift/Ctrl throttle · G gear · F flaps · R restart',
     ]);
     if (input.missionPick) startMission(MISSIONS[input.missionPick - 1].id);
-    else if (input.startRequested) startMission('rings');
+    else if (input.startRequested || input.pitch !== 0 || input.roll !== 0) startMission('rings');
   } else if (screen === 'flying') {
     if (input.pause) paused = !paused;
     if (input.restart) startMission(state.missionId);

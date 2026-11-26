@@ -77,7 +77,7 @@ export function buildTrees() {
     seed = (seed * 1103515245 + 12345) & 0x7fffffff;
     return seed / 0x7fffffff;
   };
-  for (let i = 0; i < 420; i++) {
+  for (let i = 0; i < 640; i++) {
     const a = rnd() * Math.PI * 2;
     const d = 250 + rnd() * 3400;
     const x = Math.cos(a) * d;
