@@ -12,6 +12,7 @@ import { drawHUD, drawTargetMarker, drawMinimap, drawBanner } from './hud.js';
 import { MISSIONS, createMissionState, updateMission, ringState, nextTarget } from './missions.js';
 import { createAudio } from './audio.js';
 import { parseShotMode, poseForShot } from './shots.js';
+import { createGLWorld } from './glworld.js';
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
@@ -23,6 +24,10 @@ const audio = createAudio();
 const trees = buildTrees();
 const town = buildTown();
 const clouds = buildClouds();
+// WebGL world underneath, 2D instruments on top; if WebGL is unavailable
+// the classic painter path below still runs.
+const glCanvas = document.getElementById('gl');
+const glWorld = glCanvas ? createGLWorld(glCanvas, { trees, town, clouds }) : null;
 
 let screen = 'title'; // title | flying | debrief
 let plane = createPlane();
@@ -65,6 +70,23 @@ function smoothedPlane(dt) {
 }
 
 function render(t, dt = 0.016) {
+  if (glWorld) {
+    const camPlane = smoothedPlane(dt);
+    const shown = plane.stall
+      ? { ...plane, x: plane.x + Math.sin(t * 43) * 0.3, y: plane.y + Math.cos(t * 37) * 0.25 }
+      : plane;
+    ctx.clearRect(0, 0, W, H);
+    glWorld.draw({
+      plane: shown, camPlane, timeOfDay,
+      ringStatus: RING_COURSE.map((r, i) => ringState(state, i)), t,
+    });
+    const target = nextTarget(state, plane);
+    drawTargetMarker(ctx, W, H, (x, y, z, out) => glWorld.project(x, y, z, out), target, plane);
+    drawHUD(ctx, W, H, plane, state, target, t);
+    drawMinimap(ctx, W, H, plane, state);
+    drawCockpit(ctx, W, H, plane, t);
+    return;
+  }
   const cam = makeCamera(smoothedPlane(dt), true);
   if (plane.stall) {
     // buffet: the whole airframe shudders as the wing lets go

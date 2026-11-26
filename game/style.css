@@ -9,14 +9,27 @@ body {
   font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
   background: radial-gradient(1200px 700px at 50% 30%, #17344f 0%, #0b1622 70%);
 }
-#stage { text-align: center; padding: 18px 10px 10px; }
-#game {
+#stage { text-align: center; padding: 18px 10px 10px; position: relative; }
+#gl, #game {
   width: min(96vw, 1280px);
   height: auto;
+  display: block;
+  margin: 0 auto;
+}
+#gl {
+  position: absolute;
+  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
   border: 3px solid #2c4a66;
   border-radius: 10px;
   box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(140, 200, 240, 0.15);
   background: #79aedd;
+}
+#game {
+  position: relative;
+  z-index: 2;
+  background: transparent;
   cursor: crosshair;
 }
 #hint {
