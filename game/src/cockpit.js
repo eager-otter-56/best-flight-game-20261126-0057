@@ -86,7 +86,7 @@ export function drawCockpit(ctx, w, h, plane, t) {
   ctx.clip();
   ctx.translate(xs[1], cy);
   ctx.rotate(-plane.roll);
-  ctx.translate(0, plane.pitch * r * 0.9);
+  ctx.translate(0, (plane.att !== undefined ? plane.att : plane.pitch) * r * 0.9);
   ctx.fillStyle = '#3f8fd2';
   ctx.fillRect(-r, -r * 1.6, r * 2, r * 1.6);
   ctx.fillStyle = '#8a6134';
@@ -102,6 +102,19 @@ export function drawCockpit(ctx, w, h, plane, t) {
   ctx.moveTo(xs[1] + r * 0.14, cy);
   ctx.lineTo(xs[1] + r * 0.5, cy);
   ctx.stroke();
+  // turn coordinator ball: it slides out while the turn is uncoordinated —
+  // step on the ball (rudder toward it) to centre it, like the real thing
+  const ballY = cy + r * 0.62;
+  ctx.strokeStyle = 'rgba(230,236,240,0.55)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(xs[1] - r * 0.34, ballY);
+  ctx.lineTo(xs[1] + r * 0.34, ballY);
+  ctx.stroke();
+  ctx.fillStyle = '#ffcf5e';
+  ctx.beginPath();
+  ctx.arc(xs[1] + (plane.slip || 0) * r * 0.3, ballY - 3, 3.6, 0, Math.PI * 2);
+  ctx.fill();
 
   // 3 altimeter (ft), one revolution = 1000 ft
   gaugeFrame(ctx, xs[2], cy, r, 'ALTIMETER');

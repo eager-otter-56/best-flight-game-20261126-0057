@@ -6,12 +6,18 @@ export function drawAircraft(ctx, w, h, plane, input, t, groundBelow) {
   const cx = w / 2;
   const cy = h * 0.60;
   const bank = plane.roll;
-  const pitchLift = -plane.pitch * 26;
+  // the drawn nose follows ATTITUDE, not the flight path: pull back and the
+  // nose rises first, the climb follows — the gap between them is the AoA
+  const att = plane.att !== undefined ? plane.att : plane.pitch;
+  const aoa = att - plane.pitch;
+  const pitchLift = -att * 34;
+  const buffet = plane.stall ? Math.sin(t * 47) * 2.2 : 0;
+  const airBump = (plane.verticalAir || 0) * Math.sin(t * 9.3) * 0.9;
   const scale = 1;
 
   ctx.save();
-  ctx.translate(cx, cy + pitchLift);
-  ctx.rotate(bank * 0.55);
+  ctx.translate(cx + buffet, cy + pitchLift + buffet * 0.6 + airBump);
+  ctx.rotate(bank * 0.55 - aoa * 0.45);
   ctx.scale(scale, scale);
 
   // slipstream streaks that stretch with speed, so the air itself shows motion
@@ -102,11 +108,12 @@ export function drawAircraft(ctx, w, h, plane, input, t, groundBelow) {
   ctx.fillRect(-52, 38 + elev, 30, 5);
   ctx.fillRect(22, 38 - elev, 30, 5);
   ctx.fillStyle = '#e8e2d2';
+  const rudder = (plane.slip || 0) * 6 + input.roll * 2;
   ctx.beginPath();
   ctx.moveTo(-3, 6);
   ctx.lineTo(3, 6);
-  ctx.lineTo(3 + input.roll * 5, 34);
-  ctx.lineTo(-3 + input.roll * 5, 34);
+  ctx.lineTo(3 + rudder, 34);
+  ctx.lineTo(-3 + rudder, 34);
   ctx.closePath();
   ctx.fill();
 

@@ -42,11 +42,30 @@ function startMission(id) {
   state = createMissionState(id);
   screen = 'flying';
   paused = false;
+  camSm.ready = false;
   audio.start();
 }
 
-function render(t) {
-  const cam = makeCamera(plane, true);
+// chase-camera orientation with a little spring in it: the camera settles
+// onto a new heading a beat after the aeroplane does, so turns feel weighted
+const camSm = { heading: 0, pitch: 0, roll: 0, ready: false };
+function smoothedPlane(dt) {
+  if (!camSm.ready) {
+    camSm.heading = plane.heading; camSm.pitch = plane.pitch; camSm.roll = plane.roll;
+    camSm.ready = true;
+  }
+  const k = 1 - Math.exp(-5.5 * dt);
+  let dh = plane.heading - camSm.heading;
+  while (dh > Math.PI) dh -= Math.PI * 2;
+  while (dh < -Math.PI) dh += Math.PI * 2;
+  camSm.heading += dh * k;
+  camSm.pitch += (plane.pitch - camSm.pitch) * k;
+  camSm.roll += (plane.roll - camSm.roll) * (1 - Math.exp(-7 * dt));
+  return { ...plane, heading: camSm.heading, pitch: camSm.pitch, roll: camSm.roll };
+}
+
+function render(t, dt = 0.016) {
+  const cam = makeCamera(smoothedPlane(dt), true);
   if (plane.stall) {
     // buffet: the whole airframe shudders as the wing lets go
     cam.x += Math.sin(t * 43) * 0.55;
@@ -82,7 +101,7 @@ function frame(now) {
     plane.y = 560 + Math.sin(elapsed * 0.3) * 30;
     plane.roll = -0.32;
     plane.speed = 55;
-    render(elapsed);
+    render(elapsed, dt);
     drawBanner(ctx, W, H, 'SKY HARBOR RUN', [
       'An original island flight game — gates, landings and one careful fuel gauge.',
       '',
@@ -107,10 +126,10 @@ function frame(now) {
       audio.update(plane);
       if (state.finished) screen = 'debrief';
     }
-    render(elapsed);
+    render(elapsed, dt);
     if (paused) drawBanner(ctx, W, H, 'PAUSED', ['Press P to resume · R to restart the sortie']);
   } else if (screen === 'debrief') {
-    render(elapsed);
+    render(elapsed, dt);
     drawBanner(ctx, W, H, plane.crashed ? 'FLIGHT ENDED' : 'DEBRIEF', [
       state.verdict,
       `Score ${Math.round(state.score)} · Time ${Math.round(state.elapsed)}s · Fuel left ${Math.round(plane.fuel)}% · Hull ${Math.max(0, Math.round(100 - plane.damage))}%`,
