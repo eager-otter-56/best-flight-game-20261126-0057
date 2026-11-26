@@ -85,6 +85,12 @@ function render(t, dt = 0.016) {
     drawHUD(ctx, W, H, plane, state, target, t);
     drawMinimap(ctx, W, H, plane, state);
     drawCockpit(ctx, W, H, plane, t);
+    // cinema vignette over the 3D view
+    const vg = ctx.createRadialGradient(W / 2, H / 2, H * 0.42, W / 2, H / 2, H * 0.98);
+    vg.addColorStop(0, 'rgba(4,8,14,0)');
+    vg.addColorStop(1, 'rgba(4,8,14,0.30)');
+    ctx.fillStyle = vg;
+    ctx.fillRect(0, 0, W, H);
     return;
   }
   const cam = makeCamera(smoothedPlane(dt), true);

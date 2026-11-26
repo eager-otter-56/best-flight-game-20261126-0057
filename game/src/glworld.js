@@ -20,6 +20,13 @@ function perspective(fovY, aspect, near, far) {
   out[14] = (2 * far * near) / (near - far);
   return out;
 }
+function ortho(l, r, b, t, n, f) {
+  const out = new Float32Array(16);
+  out[0] = 2 / (r - l); out[5] = 2 / (t - b); out[10] = -2 / (f - n);
+  out[12] = -(r + l) / (r - l); out[13] = -(t + b) / (t - b); out[14] = -(f + n) / (f - n);
+  out[15] = 1;
+  return out;
+}
 function multiply(a, b) {
   const out = new Float32Array(16);
   for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) {
@@ -99,37 +106,133 @@ class FlatGeo {
       this.quad(b0, b1, t1, t0, color);
     }
   }
+  // tapered tube along Z through ellipse stations {z, rx, ry, y}
+  tube(stations, seg, color) {
+    const rings = stations.map((s) => {
+      const pts = [];
+      for (let k = 0; k < seg; k++) {
+        const a = (k / seg) * Math.PI * 2;
+        pts.push([Math.cos(a) * s.rx, s.y + Math.sin(a) * s.ry, s.z]);
+      }
+      return pts;
+    });
+    for (let i = 0; i < rings.length - 1; i++) {
+      for (let k = 0; k < seg; k++) {
+        const k1 = (k + 1) % seg;
+        this.quad(rings[i][k], rings[i + 1][k], rings[i + 1][k1], rings[i][k1], color);
+      }
+    }
+    const last = stations[stations.length - 1];
+    const c = [0, last.y, last.z];
+    const lr = rings[rings.length - 1];
+    const capCol = color.map((v) => v * 0.8); // end cap reads as a panel, not a lamp
+    for (let k = 0; k < seg; k++) this.tri(lr[k], lr[(k + 1) % seg], c, capCol);
+  }
+  // cone along Z: base circle at z0 radius r, apex at z1
+  coneZ(cx, cy, z0, z1, r, seg, color) {
+    const apex = [cx, cy, z1];
+    for (let i = 0; i < seg; i++) {
+      const a0 = (i / seg) * Math.PI * 2; const a1 = ((i + 1) / seg) * Math.PI * 2;
+      this.tri([cx + Math.cos(a0) * r, cy + Math.sin(a0) * r, z0],
+        [cx + Math.cos(a1) * r, cy + Math.sin(a1) * r, z0], apex, color);
+    }
+  }
+  sphere(cx, cy, cz, r, seg, rings, color) {
+    const pt = (phi, th) => [cx + r * Math.sin(phi) * Math.cos(th), cy + r * Math.cos(phi), cz + r * Math.sin(phi) * Math.sin(th)];
+    for (let j = 0; j < rings; j++) {
+      const p0 = (j / rings) * Math.PI; const p1 = ((j + 1) / rings) * Math.PI;
+      for (let i = 0; i < seg; i++) {
+        const t0 = (i / seg) * Math.PI * 2; const t1 = ((i + 1) / seg) * Math.PI * 2;
+        this.quad(pt(p0, t0), pt(p1, t0), pt(p1, t1), pt(p0, t1), color);
+      }
+    }
+  }
+  // tapered wing slab: root/tip corners, thickness th; tip face gets tipColor
+  slab(rl, rt, tl, tt, th, color, tipColor) {
+    const flip = tl[0] < rl[0];
+    const q = (a, b, c, d, col) => { if (flip) this.quad(a, d, c, b, col); else this.quad(a, b, c, d, col); };
+    const B = (p) => [p[0], p[1] - th, p[2]];
+    q(rl, rt, tt, tl, color);
+    q(B(rl), B(tl), B(tt), B(rt), color);
+    q(rl, tl, B(tl), B(rl), color);
+    q(rt, B(rt), B(tt), tt, color);
+    q(tl, tt, B(tt), B(tl), tipColor || color);
+  }
 }
 
 // ---------- shaders ----------
 const MESH_VS = `
 attribute vec3 aPos; attribute vec3 aNor; attribute vec3 aCol; attribute float aShade;
-uniform mat4 uMVP; uniform mat4 uModel; uniform vec3 uSunDir; uniform float uAmbient;
-varying vec3 vCol; varying float vLight; varying vec3 vWorld; varying float vShade;
+uniform mat4 uMVP; uniform mat4 uModel;
+varying vec3 vCol; varying vec3 vWorld; varying float vShade; varying vec3 vNorm;
 void main() {
   vec4 wp = uModel * vec4(aPos, 1.0);
   vWorld = wp.xyz;
-  vec3 n = normalize(mat3(uModel) * aNor);
-  vLight = uAmbient + (1.0 - uAmbient) * max(dot(n, uSunDir), 0.0);
+  vNorm = normalize(mat3(uModel) * aNor);
   vCol = aCol; vShade = aShade;
   gl_Position = uMVP * vec4(aPos, 1.0);
 }`;
 const MESH_FS = `
 precision mediump float;
-varying vec3 vCol; varying float vLight; varying vec3 vWorld; varying float vShade;
+varying vec3 vCol; varying vec3 vWorld; varying float vShade; varying vec3 vNorm;
 uniform vec3 uFogColor; uniform float uFogNear; uniform float uFogFar;
 uniform vec3 uCamPos; uniform sampler2D uTex; uniform float uTexAmt;
 uniform vec3 uTint; uniform float uAlpha; uniform float uFlat;
+uniform vec3 uSunDir; uniform float uAmbient; uniform vec3 uSunCol;
+uniform sampler2D uShadowMap; uniform mat4 uShadowVP; uniform float uShadowOn;
+uniform float uTime; uniform float uSpec;
+float shadowAt(vec2 uv, float z) {
+  float d = texture2D(uShadowMap, uv).r;
+  return step(z, d);
+}
 void main() {
   vec3 base = vCol * uTint;
-  float grain = texture2D(uTex, vWorld.xz * 0.013).r;
+  // two scales of grain: broad patches and fine speckle up close
+  float grain = texture2D(uTex, vWorld.xz * 0.013).r * 0.62
+              + texture2D(uTex, vWorld.xz * 0.11).r * 0.38;
   base *= 1.0 + (grain - 0.5) * uTexAmt;
-  float li = mix(vLight, 1.0, uFlat);
+  vec3 n = normalize(vNorm);
+  float diff = max(dot(n, uSunDir), 0.0);
+  // open water gets a rippled normal for the sun glitter (specular only,
+  // so the diffuse stays calm and does not quilt into patches)
+  vec3 nSpec = n;
+  if (vWorld.y < 1.6 && n.y > 0.9) {
+    nSpec = normalize(vec3(sin(vWorld.x * 0.16 + uTime * 0.7) * 0.09, 1.0,
+                           cos(vWorld.z * 0.13 + uTime * 0.55) * 0.09));
+  }
+  float sh = 1.0;
+  if (uShadowOn > 0.5 && uFlat < 0.5) {
+    vec4 sc = uShadowVP * vec4(vWorld, 1.0);
+    vec3 sp = sc.xyz / sc.w * 0.5 + 0.5;
+    if (sp.x > 0.0 && sp.x < 1.0 && sp.y > 0.0 && sp.y < 1.0 && sp.z < 1.0) {
+      float bias = 0.0016 + 0.0035 * (1.0 - diff);
+      float texel = 1.0 / 2048.0;
+      sh = 0.0;
+      sh += shadowAt(sp.xy + vec2(-texel, -texel), sp.z - bias);
+      sh += shadowAt(sp.xy + vec2(texel, -texel), sp.z - bias);
+      sh += shadowAt(sp.xy + vec2(-texel, texel), sp.z - bias);
+      sh += shadowAt(sp.xy + vec2(texel, texel), sp.z - bias);
+      sh *= 0.25;
+    }
+  }
+  float li = mix(uAmbient + (1.0 - uAmbient) * diff * sh, 1.0, uFlat);
   vec3 c = base * li * vShade;
+  // sun sheen: water glitters, paint and metal answer more softly
+  vec3 vdir = normalize(uCamPos - vWorld);
+  vec3 hv = normalize(vdir + uSunDir);
+  float spec = min(pow(max(dot(nSpec, hv), 0.0), 70.0) * uSpec * sh, 0.55);
+  c += uSunCol * spec;
   float d = distance(vWorld, uCamPos);
   float f = smoothstep(uFogNear, uFogFar, d);
   gl_FragColor = vec4(mix(c, uFogColor, f), uAlpha);
 }`;
+const DEPTH_VS = `
+attribute vec3 aPos;
+uniform mat4 uMVP;
+void main() { gl_Position = uMVP * vec4(aPos, 1.0); }`;
+const DEPTH_FS = `
+precision mediump float;
+void main() { gl_FragColor = vec4(1.0); }`;
 const SKY_VS = `
 attribute vec3 aPos;
 uniform mat4 uMVP;
@@ -278,15 +381,33 @@ function buildStatic(trees, town) {
     g.tri([b.x - hw, y1, b.z - hd], [b.x, y1 + rh, b.z - hd], [b.x + hw, y1, b.z - hd], roof);
     g.tri([b.x + hw, y1, b.z + hd], [b.x, y1 + rh, b.z + hd], [b.x - hw, y1, b.z + hd], roof);
   }
-  // pines: trunk and two cones, greens varied per tree
+  // trees: pines (two cones) and broadleaf (blob canopies), greens varied
   const trunk = hexRGB('#6b4a2f');
   trees.forEach((tr, i) => {
     const v = 0.9 + (i % 5) * 0.07;
     const green = hexRGB('#2f6b2f').map((c) => Math.min(1, c * v));
     const green2 = hexRGB('#3a7d33').map((c) => Math.min(1, c * v));
     g.box(tr.x, tr.h + 2.2 * tr.s, tr.z, 1.1 * tr.s, 4.6 * tr.s, 1.1 * tr.s, trunk);
-    g.coneY(tr.x, tr.h + 3.4 * tr.s, tr.z, 5.6 * tr.s, 10.5 * tr.s, 7, green);
-    g.coneY(tr.x, tr.h + 8.8 * tr.s, tr.z, 3.8 * tr.s, 7.6 * tr.s, 7, green2);
+    if (i % 3 === 2) {
+      g.sphere(tr.x, tr.h + 8.6 * tr.s, tr.z, 5.4 * tr.s, 7, 4, green);
+      g.sphere(tr.x + 3.1 * tr.s, tr.h + 6.4 * tr.s, tr.z + 1.4 * tr.s, 3.6 * tr.s, 6, 4, green2);
+      g.sphere(tr.x - 2.8 * tr.s, tr.h + 7.0 * tr.s, tr.z - 1.8 * tr.s, 3.2 * tr.s, 6, 4, green2);
+    } else {
+      g.coneY(tr.x, tr.h + 3.4 * tr.s, tr.z, 5.6 * tr.s, 10.5 * tr.s, 7, green);
+      g.coneY(tr.x, tr.h + 8.8 * tr.s, tr.z, 3.8 * tr.s, 7.6 * tr.s, 7, green2);
+    }
+  });
+  // harbour boats riding at anchor south of the town
+  const hullW = hexRGB('#e8e6df'); const hullR = hexRGB('#b4452f'); const cabinC = hexRGB('#f2efe6');
+  const mast = hexRGB('#7a6a55');
+  [[-460, 3180, 0.5], [-380, 2960, -0.35], [-290, 3330, 0.9], [-160, 3260, -0.7]].forEach(([bx, bz, rot]) => {
+    const cs = Math.cos(rot); const sn = Math.sin(rot);
+    const L = (lx, lz) => [bx + lx * cs - lz * sn, bz + lx * sn + lz * cs];
+    let p;
+    p = L(0, -9); g.box(p[0], 1.15, p[1], 6.4, 2.3, 17, hullW);
+    p = L(0, -9); g.box(p[0], 0.45, p[1], 6.7, 0.8, 17.4, hullR);
+    p = L(0, -4); g.box(p[0], 3.1, p[1], 4.2, 1.8, 6.5, cabinC);
+    p = L(0, 3.5); g.box(p[0], 4.6, p[1], 0.35, 6.4, 0.35, mast);
   });
   // lighthouse: white tower, red band, dark lamp room
   const lh = LIGHTHOUSE;
@@ -301,28 +422,48 @@ function buildAircraft() {
   const g = new FlatGeo();
   const cream = hexRGB('#ece7db'); const orange = hexRGB('#d8542e');
   const darkOrange = hexRGB('#b23f1e'); const glass = hexRGB('#2c5a78');
-  g.box(0, 0, -6, 2.3, 2.5, 6, cream);          // nose section
-  g.box(0, 0.1, 0, 2.8, 3.0, 6.4, cream);       // cabin section
-  g.box(0, 0.45, 5.9, 1.7, 1.9, 5.6, cream);    // tail cone
-  g.box(0, -0.35, -0.2, 2.86, 0.55, 7.6, orange); // cheatline shell
-  g.box(0, 1.78, -2.6, 2.1, 1.0, 3.6, glass);   // canopy
-  g.box(0, 1.85, -0.7, 23.6, 0.55, 3.4, orange); // main wing
-  g.box(-11.6, 1.85, -0.7, 1.0, 0.6, 3.4, cream);
-  g.box(11.6, 1.85, -0.7, 1.0, 0.6, 3.4, cream);
-  g.box(0, 0.75, 8.3, 8.6, 0.4, 2.3, orange);   // tailplane
-  g.box(0, 2.1, 8.3, 0.5, 2.9, 2.5, darkOrange); // fin
-  // spinner cone (apex forward)
   const dark = hexRGB('#33383e');
-  for (let i = 0; i < 10; i++) {
-    const a0 = (i / 10) * Math.PI * 2; const a1 = ((i + 1) / 10) * Math.PI * 2;
-    g.tri([0, 0, -10.6],
-      [Math.cos(a1) * 0.62, Math.sin(a1) * 0.62, -9.0],
-      [Math.cos(a0) * 0.62, Math.sin(a0) * 0.62, -9.0], dark);
-  }
+  // streamlined fuselage: an ellipse-section tube, nose to tail
+  g.tube([
+    { z: -9.7, rx: 0.30, ry: 0.32, y: 0.05 },
+    { z: -8.8, rx: 0.94, ry: 1.04, y: 0.06 },
+    { z: -6.2, rx: 1.24, ry: 1.34, y: 0.10 },
+    { z: -2.6, rx: 1.42, ry: 1.50, y: 0.14 },
+    { z: 1.4, rx: 1.36, ry: 1.42, y: 0.22 },
+    { z: 4.8, rx: 1.05, ry: 1.10, y: 0.46 },
+    { z: 7.6, rx: 0.64, ry: 0.70, y: 0.66 },
+    { z: 9.4, rx: 0.30, ry: 0.36, y: 0.76 },
+  ], 10, cream);
+  // cheatline stripes hugging the cabin sides
+  g.box(-1.40, -0.38, -2.4, 0.07, 0.55, 7.6, orange);
+  g.box(1.40, -0.38, -2.4, 0.07, 0.55, 7.6, orange);
+  // canopy: glass over a body-colour sill
+  g.box(0, 1.34, -1.7, 1.95, 0.35, 3.9, cream);
+  g.box(0, 1.72, -1.7, 1.72, 0.62, 3.5, glass);
+  // main wing: tapered slabs with dihedral, red tips
+  g.slab([1.1, 1.72, -2.7], [1.1, 1.72, 0.9], [12.4, 2.42, -1.9], [12.4, 2.42, 0.35], 0.34, orange, darkOrange);
+  g.slab([-1.1, 1.72, -2.7], [-1.1, 1.72, 0.9], [-12.4, 2.42, -1.9], [-12.4, 2.42, 0.35], 0.34, orange, darkOrange);
+  // tailplane, same treatment
+  g.slab([0.7, 0.98, 6.9], [0.7, 0.98, 9.1], [5.1, 1.12, 7.3], [5.1, 1.12, 8.9], 0.22, orange, darkOrange);
+  g.slab([-0.7, 0.98, 6.9], [-0.7, 0.98, 9.1], [-5.1, 1.12, 7.3], [-5.1, 1.12, 8.9], 0.22, orange, darkOrange);
+  // swept fin: two side faces plus caps
+  const finP = [[6.5, 0.95], [7.5, 4.35], [9.15, 4.35], [9.5, 1.0]]; // [z, y]
+  const fx = 0.11;
+  const fp = finP.map(([z, y]) => [fx, y, z]); const fm = finP.map(([z, y]) => [-fx, y, z]);
+  g.quad(fp[0], fp[1], fp[2], fp[3], darkOrange);
+  g.quad(fm[3], fm[2], fm[1], fm[0], darkOrange);
+  g.quad(fm[1], fp[1], fp[2], fm[2], darkOrange);
+  g.quad(fm[0], fm[3], fp[3], fp[0], darkOrange);
+  // spinner: a proper cone along the thrust line
+  g.coneZ(0, 0.06, -9.55, -11.0, 0.60, 10, dark);
+  // exhaust stub
+  g.box(0.9, -0.95, -7.6, 0.35, 0.3, 1.1, dark);
   const gear = new FlatGeo();
   const wheel = hexRGB('#22252a');
   gear.box(-1.6, -2.3, -0.9, 0.3, 2.4, 0.3, dark);
   gear.box(1.6, -2.3, -0.9, 0.3, 2.4, 0.3, dark);
+  gear.box(-1.6, -1.05, -0.9, 0.85, 0.55, 1.7, cream); // wheel fairings
+  gear.box(1.6, -1.05, -0.9, 0.85, 0.55, 1.7, cream);
   for (const sx of [-1.6, 1.6]) {
     for (let i = 0; i < 10; i++) {
       const a0 = (i / 10) * Math.PI * 2; const a1 = ((i + 1) / 10) * Math.PI * 2;
@@ -396,16 +537,36 @@ export function createGLWorld(canvas, { trees, town, clouds }) {
   if (!gl.getExtension('OES_element_index_uint')) return null;
   const W = canvas.width; const H = canvas.height;
 
-  let meshProg; let skyProg; let spriteProg;
+  let meshProg; let skyProg; let spriteProg; let depthProg;
   try {
     meshProg = program(gl, MESH_VS, MESH_FS);
     skyProg = program(gl, SKY_VS, SKY_FS);
     spriteProg = program(gl, SPRITE_VS, SPRITE_FS);
+    depthProg = program(gl, DEPTH_VS, DEPTH_FS);
   } catch (e) {
     return null;
   }
   const MU = {};
-  for (const n of ['uMVP', 'uModel', 'uSunDir', 'uAmbient', 'uFogColor', 'uFogNear', 'uFogFar', 'uCamPos', 'uTex', 'uTexAmt', 'uTint', 'uAlpha', 'uFlat']) MU[n] = gl.getUniformLocation(meshProg, n);
+  for (const n of ['uMVP', 'uModel', 'uSunDir', 'uAmbient', 'uFogColor', 'uFogNear', 'uFogFar', 'uCamPos', 'uTex', 'uTexAmt', 'uTint', 'uAlpha', 'uFlat', 'uSunCol', 'uShadowMap', 'uShadowVP', 'uShadowOn', 'uTime', 'uSpec']) MU[n] = gl.getUniformLocation(meshProg, n);
+  const DU = { uMVP: gl.getUniformLocation(depthProg, 'uMVP'), aPos: gl.getAttribLocation(depthProg, 'aPos') };
+
+  // real-time sun shadows: a depth texture rendered from the sun's viewpoint
+  let shadowFBO = null; let shadowTex = null;
+  const depthExt = gl.getExtension('WEBGL_depth_texture');
+  if (depthExt) {
+    shadowTex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, shadowTex);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.DEPTH_COMPONENT, 2048, 2048, 0, gl.DEPTH_COMPONENT, gl.UNSIGNED_SHORT, null);
+    shadowFBO = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, shadowFBO);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, shadowTex, 0);
+    if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) { shadowFBO = null; shadowTex = null; }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  }
   const MA = {};
   for (const n of ['aPos', 'aNor', 'aCol', 'aShade']) MA[n] = gl.getAttribLocation(meshProg, n);
   const SU = {};
@@ -483,7 +644,7 @@ export function createGLWorld(canvas, { trees, town, clouds }) {
   const cloudPosArr = new Float32Array(clouds.length * 18 * 3);
   const cloudUVArr = new Float32Array(clouds.length * 18 * 2);
 
-  let lastVP = null; let lastCamPos = [0, 0, 0]; let lastFwd = [0, 0, -1];
+  let lastVP = null; let lastCamPos = [0, 0, 0]; let lastFwd = [0, 0, -1]; let lastACModel = null;
 
   function bindMesh(m) {
     const bind = (buf, loc, size) => {
@@ -502,6 +663,7 @@ export function createGLWorld(canvas, { trees, town, clouds }) {
     gl.uniform1f(MU.uAlpha, opts.alpha !== undefined ? opts.alpha : 1);
     gl.uniform1f(MU.uFlat, opts.flat || 0);
     gl.uniform1f(MU.uTexAmt, opts.texAmt || 0);
+    gl.uniform1f(MU.uSpec, opts.spec || 0);
     if (m.idx) gl.drawElements(gl.TRIANGLES, m.count, gl.UNSIGNED_INT, 0);
     else gl.drawArrays(gl.TRIANGLES, 0, m.count);
   }
@@ -521,6 +683,32 @@ export function createGLWorld(canvas, { trees, town, clouds }) {
     const fovY = 2 * Math.atan(Math.tan(0.541) / fovScale);
     const vp = multiply(perspective(fovY, W / H, 0.5, 12000), view);
     lastVP = vp; lastCamPos = eye; lastFwd = cf;
+
+    // sun shadow pass: render the world depth from the sun's viewpoint
+    let shadowVP = null;
+    if (shadowFBO) {
+      const tx = Math.round(plane.x / 40) * 40; const tz = Math.round(plane.z / 40) * 40;
+      const lp = [tx + tod.sun[0] * 1100, plane.y + tod.sun[1] * 1100, tz + tod.sun[2] * 1100];
+      const lv = lookAt(lp, [tx, plane.y, tz], [0, 1, 0]);
+      shadowVP = multiply(ortho(-700, 700, -700, 700, 200, 2400), lv);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, shadowFBO);
+      gl.viewport(0, 0, 2048, 2048);
+      gl.clear(gl.DEPTH_BUFFER_BIT);
+      gl.enable(gl.DEPTH_TEST);
+      gl.useProgram(depthProg);
+      const drawDepth = (m, model) => {
+        gl.bindBuffer(gl.ARRAY_BUFFER, m.pos);
+        gl.enableVertexAttribArray(DU.aPos);
+        gl.vertexAttribPointer(DU.aPos, 3, gl.FLOAT, false, 0, 0);
+        gl.uniformMatrix4fv(DU.uMVP, false, multiply(shadowVP, model));
+        if (m.idx) { gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, m.idx); gl.drawElements(gl.TRIANGLES, m.count, gl.UNSIGNED_INT, 0); }
+        else gl.drawArrays(gl.TRIANGLES, 0, m.count);
+      };
+      drawDepth(terrainMesh, IDENTITY);
+      drawDepth(staticMesh, IDENTITY);
+      if (lastACModel) drawDepth(acMesh, lastACModel);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    }
     // camera basis for billboards
     const camRight = [view[0], view[4], view[8]];
     const camUp = [view[1], view[5], view[9]];
@@ -552,12 +740,22 @@ export function createGLWorld(canvas, { trees, town, clouds }) {
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, grainTex);
     gl.uniform1i(MU.uTex, 0);
+    gl.uniform3fv(MU.uSunCol, tod.sunCol);
+    gl.uniform1f(MU.uTime, t);
+    gl.uniform1f(MU.uShadowOn, shadowVP ? 1 : 0);
+    if (shadowVP) {
+      gl.uniformMatrix4fv(MU.uShadowVP, false, shadowVP);
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, shadowTex);
+      gl.uniform1i(MU.uShadowMap, 1);
+      gl.activeTexture(gl.TEXTURE0);
+    }
 
-    drawMesh(terrainMesh, IDENTITY, vp, { texAmt: 0.5 });
+    drawMesh(terrainMesh, IDENTITY, vp, { texAmt: 0.5, spec: 0.05 });
     // the sea is opaque: distance fog melts it into the horizon colour,
     // which is what keeps the horizon seamless at sunset
-    drawMesh(seaMesh, IDENTITY, vp, { texAmt: 0.15, flat: 0.15, alpha: 1 });
-    drawMesh(staticMesh, IDENTITY, vp, { texAmt: 0.12 });
+    drawMesh(seaMesh, IDENTITY, vp, { texAmt: 0.06, spec: 0.9 });
+    drawMesh(staticMesh, IDENTITY, vp, { texAmt: 0.12, spec: 0.10 });
 
     // aeroplane ground shadow
     const agl = plane.y - groundHeight(plane.x, plane.z);
@@ -612,12 +810,13 @@ export function createGLWorld(canvas, { trees, town, clouds }) {
     const rP = r0.map((v, i) => v * cr - u0[i] * sr);
     const uP = u0.map((v, i) => v * cr + r0[i] * sr);
     const acModel = basisMatrix(plane.x, plane.y, plane.z, rP, uP, f.map((v) => -v));
-    drawMesh(acMesh, acModel, vp, { texAmt: 0.05 });
-    if (plane.gearDown) drawMesh(gearMesh, acModel, vp, { texAmt: 0.05 });
-    const propBase = multiply(acModel, translation(0, 0.1, -9.9));
+    lastACModel = acModel;
+    drawMesh(acMesh, acModel, vp, { texAmt: 0.05, spec: 0.32 });
+    if (plane.gearDown) drawMesh(gearMesh, acModel, vp, { texAmt: 0.05, spec: 0.3 });
+    const propBase = multiply(acModel, translation(0, 0.06, -9.8));
     gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     gl.depthMask(false);
-    drawMesh(discMesh, multiply(acModel, translation(0, 0.1, -10.05)), vp, { flat: 1, alpha: 0.18 });
+    drawMesh(discMesh, multiply(acModel, translation(0, 0.06, -9.8)), vp, { flat: 1, alpha: 0.18 });
     gl.depthMask(true); gl.disable(gl.BLEND);
     drawMesh(bladeMesh, multiply(propBase, rotZ(t * 42)), vp, { texAmt: 0 });
 
