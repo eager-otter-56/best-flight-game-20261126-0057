@@ -9,10 +9,11 @@ An original, fully offline flight game built for the make.fun bounty
 (https://make.fun/bounty/best-flight-game-20261126-0057).
 
 You fly a high-wing tourer over Sky Harbor Island — a heightfield island with
-a harbour town, a lighthouse, pine forest and snow-tipped peaks — from a chase
-cockpit with a full set of lit steam gauges. There is a marked runway with
-edge lights and PAPI, and an eight-gate ring course threaded through the
-valleys.
+a harbour town, a lighthouse, pine forest and snow-tipped peaks — rendered as
+a real-time WebGL 3D world with sun shadow mapping, and flown from either a
+chase camera or a first-person cockpit view, with a full set of lit steam
+gauges. There is a marked runway with edge lights and PAPI, and an
+eight-gate ring course threaded through the valleys.
 
 ## The three sorties
 
@@ -31,7 +32,7 @@ altimeter, heading, vertical speed, throttle, fuel, hull — is live.
 
 - **Arrows** or **mouse drag** — stick (pitch and roll)
 - **Shift / Ctrl** (or `+` / `-`) — throttle up / down
-- **G** — landing gear · **F** — flaps · **P** — pause · **R** — restart
+- **G** — landing gear · **F** — flaps · **V** — chase / cockpit view · **P** — pause · **R** — restart
 - **1 / 2 / 3** — choose a sortie on the title screen
 
 ## Layout
@@ -44,8 +45,10 @@ altimeter, heading, vertical speed, throttle, fuel, hull — is live.
   http://localhost:8080, or any static file server.
   - `game/src/terrain.js` — the island heightfield, runway, ring course, scenery
   - `game/src/physics.js` — the flight model: lift, stall, fuel, damage
-  - `game/src/render3d.js` — sky, terrain, runway, rings and scenery painter
-  - `game/src/aircraft.js` — the chase-view aeroplane
+  - `game/src/glworld.js` — the WebGL world: terrain mesh with real-time sun
+    shadows, faceted town and trees, the 3D aeroplane, chase and cockpit cameras
+  - `game/src/render3d.js` — the fallback 2D painter (sky, terrain, rings)
+  - `game/src/aircraft.js` — the chase-view aeroplane for the fallback painter
   - `game/src/cockpit.js` — the lit instrument panel
   - `game/src/hud.js` — HUD tapes, target marker, minimap, banners
   - `game/src/missions.js` — the three sorties and scoring
@@ -54,7 +57,7 @@ altimeter, heading, vertical speed, throttle, fuel, hull — is live.
   - `game/src/main.js` — boot, game loop and screen states
   - `game/src/shots.js` — posed `?shot=` scenes used for the screenshots
 - `screenshots/` — real renders of the game in headless Chrome
-  (`?shot=cover|approach|rings|sunset`), never edited or composited.
+  (`?shot=cover|approach|cockpit|sunset`), never edited or composited.
 
 Everything — idea, art, names and sound — is original to this entry.
 Licensed under the MIT License (see `LICENSE`).
