@@ -72,15 +72,23 @@ export function stepPlane(p, input, dt, groundAt) {
   const s1 = vRef;            // damping derivatives scale ~ v
   const s2 = vRef * vRef;     // stiffness / control derivatives ~ v^2
   const Yb = -0.14 * s1;      // side-force damping
-  const Lb = -7.5 * s2;       // dihedral effect: roll due to sideslip
-  const Lp = -4.2 * s1;       // roll damping — a LONG subsidence
-                              // (tau ~0.24 s): angular inertia, the
-                              // aeroplane takes a breath to start rolling
-  const Lr = 2.2 * s1;        // roll due to yaw rate
-  const Lda = 5.6 * s2;       // aileron power, per unit stick (~55 deg/s)
+  const Lb = -4.5 * s2;       // dihedral effect: roll due to sideslip
+                              // (softened: it was eating the roll alive
+                              // in sustained turns)
+  const Lp = -2.1 * s1;       // roll damping — a HEAVY subsidence
+                              // (tau ~0.48 s): real angular inertia; the
+                              // aeroplane leans into a roll like it
+                              // means it, and takes its time stopping
+  const Lr = 1.5 * s1;        // roll due to yaw rate
+  const Lda = 2.6 * s2;       // aileron power, per unit stick — LOW
+                              // angular acceleration is the weight you
+                              // feel first; steady roll still ~45 deg/s
   const Nb = 7.3 * s2;        // weathercock stability (the fin)
   const Np = -0.36 * s1;      // yaw due to roll rate
-  const Nr = -1.9 * s1;       // yaw damping (the fin again)
+  const Nr = -2.3 * s1;       // yaw damping (the fin again — sized so
+                              // the spiral mode stays near-neutral with
+                              // the softened dihedral: bank holds, it
+                              // does not wind itself into the turn)
   const Nda = -0.84 * s2;     // adverse yaw, per unit stick
   // engine torque as a rolling moment, and P-factor as a yawing moment:
   // both fight through the same damping as everything else now
@@ -122,7 +130,7 @@ export function stepPlane(p, input, dt, groundAt) {
   // slow — and the pitch rate itself builds over ~0.3 s (pitch inertia:
   // she nods, she does not snap)
   const effP = clamp(0.65 + 0.35 * s2, 0.65, 1.3);
-  p.attVel += ((stickPitch * 0.8 * effP) - p.attVel) * Math.min(1, 3.8 * t);
+  p.attVel += ((stickPitch * 0.8 * effP) - p.attVel) * Math.min(1, 3.6 * t);
   p.att += p.attVel * t;
   // longitudinal stability: left alone the nose settles back toward the path
   p.attVel += (p.pitch - p.att) * 0.55 * t;
@@ -159,7 +167,7 @@ export function stepPlane(p, input, dt, groundAt) {
   // the engine spools: power arrives over a second or so, not instantly —
   // the last piece of the aeroplane's sense of mass
   if (p.spool === undefined) p.spool = p.throttle;
-  const spoolRate = p.throttle > p.spool ? 1.5 : 2.4;
+  const spoolRate = p.throttle > p.spool ? 1.3 : 2.0;
   p.spool += clamp(p.throttle - p.spool, -spoolRate * t, spoolRate * t);
   const thrust = p.spool * 34 * (p.fuel > 0 ? 1 : 0);
   const parasite = 2.1 + 0.0075 * p.speed * p.speed;
@@ -185,7 +193,10 @@ export function stepPlane(p, input, dt, groundAt) {
   p.x += fx * p.speed * t;
   p.z += fz * p.speed * t;
   let vy = Math.sin(p.pitch) * p.speed + verticalAir;
-  if (vy < 0 && agl < 15 && p.airborne) vy *= 0.45 + (agl / 15) * 0.55; // the flare floats
+  // ground effect: real, but it lives within about a wingspan — the old
+  // 15 m ramp at a 0.45 floor let her float the entire strip at approach
+  // power without ever settling
+  if (vy < 0 && agl < 8 && p.airborne) vy *= 0.62 + (agl / 8) * 0.38; // the flare floats — a little
   p.vy = vy;
   p.y += vy * t;
 
