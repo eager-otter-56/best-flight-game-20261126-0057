@@ -73,10 +73,11 @@ export function stepPlane(p, input, dt, groundAt) {
   const s2 = vRef * vRef;     // stiffness / control derivatives ~ v^2
   const Yb = -0.14 * s1;      // side-force damping
   const Lb = -7.5 * s2;       // dihedral effect: roll due to sideslip
-  const Lp = -9.2 * s1;       // roll damping (roll subsidence — a touch
-                              // heavier than v7: inertia you can feel)
+  const Lp = -4.2 * s1;       // roll damping — a LONG subsidence
+                              // (tau ~0.24 s): angular inertia, the
+                              // aeroplane takes a breath to start rolling
   const Lr = 2.2 * s1;        // roll due to yaw rate
-  const Lda = 12.8 * s2;      // aileron power, per unit stick (~65 deg/s)
+  const Lda = 5.6 * s2;       // aileron power, per unit stick (~55 deg/s)
   const Nb = 7.3 * s2;        // weathercock stability (the fin)
   const Np = -0.36 * s1;      // yaw due to roll rate
   const Nr = -1.9 * s1;       // yaw damping (the fin again)
@@ -117,9 +118,11 @@ export function stepPlane(p, input, dt, groundAt) {
   }
   p.flapTransient *= Math.exp(-1.7 * t);
 
-  // the elevator's bite scales with dynamic pressure too: mushy when slow
+  // the elevator's bite scales with dynamic pressure too: mushy when
+  // slow — and the pitch rate itself builds over ~0.3 s (pitch inertia:
+  // she nods, she does not snap)
   const effP = clamp(0.65 + 0.35 * s2, 0.65, 1.3);
-  p.attVel += ((stickPitch * 0.8 * effP) - p.attVel) * Math.min(1, 6.2 * t);
+  p.attVel += ((stickPitch * 0.8 * effP) - p.attVel) * Math.min(1, 3.8 * t);
   p.att += p.attVel * t;
   // longitudinal stability: left alone the nose settles back toward the path
   p.attVel += (p.pitch - p.att) * 0.55 * t;
@@ -153,7 +156,12 @@ export function stepPlane(p, input, dt, groundAt) {
   // which settles within a few percent of the coordinated g·tan(bank)/v ---
 
   // --- energy: thrust against drag, gravity taxing every climb ---
-  const thrust = p.throttle * 34 * (p.fuel > 0 ? 1 : 0);
+  // the engine spools: power arrives over a second or so, not instantly —
+  // the last piece of the aeroplane's sense of mass
+  if (p.spool === undefined) p.spool = p.throttle;
+  const spoolRate = p.throttle > p.spool ? 1.5 : 2.4;
+  p.spool += clamp(p.throttle - p.spool, -spoolRate * t, spoolRate * t);
+  const thrust = p.spool * 34 * (p.fuel > 0 ? 1 : 0);
   const parasite = 2.1 + 0.0075 * p.speed * p.speed;
   const induced = 3.1 * liftN * liftN * (42 / Math.max(p.speed, 24));
   const gearDrag = p.gearDown ? 1.5 : 0;
