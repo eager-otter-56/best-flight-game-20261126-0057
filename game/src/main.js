@@ -73,9 +73,15 @@ function smoothedPlane(dt) {
 function render(t, dt = 0.016) {
   if (glWorld) {
     const camPlane = smoothedPlane(dt);
-    const shown = plane.stall
-      ? { ...plane, x: plane.x + Math.sin(t * 43) * 0.3, y: plane.y + Math.cos(t * 37) * 0.25 }
-      : plane;
+    // the airframe sits on its oleo spring, and rumbles as it rolls
+    const shown = { ...plane, y: plane.y + (plane.gearSpring || 0) };
+    if (plane.onGround && plane.speed > 3) {
+      shown.y += Math.sin(t * 43) * 0.022 * Math.min(1, plane.speed / 30);
+    }
+    if (plane.stall) {
+      shown.x = plane.x + Math.sin(t * 43) * 0.3;
+      shown.y += Math.cos(t * 37) * 0.25;
+    }
     ctx.clearRect(0, 0, W, H);
     glWorld.draw({
       plane: shown, camPlane, timeOfDay, view: viewMode,

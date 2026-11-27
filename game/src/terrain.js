@@ -38,6 +38,12 @@ export function groundHeight(x, z) {
   let h = -34 + falloff * 60;
   for (const r of ridges) h += r.h * gauss(x, z, r.x, r.z, r.r) * Math.min(1, falloff + 0.25);
   h += hashNoise(x, z) * Math.max(0, Math.min(1, falloff * 1.6));
+  // calm the low band with a smooth curve (no seam): offshore noise humps
+  // are scaled down and pulled under, so the open water stays open instead
+  // of sprouting a carpet of micro-islets; real land and ridges keep their
+  // full height, and the shoreline just gains wider, flatter beaches
+  const ss = (a, b, v) => { const u = Math.max(0, Math.min(1, (v - a) / (b - a))); return u * u * (3 - 2 * u); };
+  h = h * (0.26 + 0.74 * ss(2, 30, h)) - 3.8 * (1 - ss(10, 22, h));
   const rw = WORLD.runway;
   const along = Math.abs(z - rw.z);
   const across = Math.abs(x - rw.x);

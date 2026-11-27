@@ -16,6 +16,7 @@ export function createPlane() {
     pitch: 0, roll: 0,
     att: 0, attVel: 0, // nose attitude and its rate
     slip: 0, aoa: 0, loadFactor: 1, verticalAir: 0, t: 0,
+    gearSpring: 0, gearSpringVel: 0, flapTransient: 0, flapsPrev: 0,
     speed: 52, // m/s
     throttle: 0.62,
     vy: 0,
@@ -51,6 +52,21 @@ export function stepPlane(p, input, dt, groundAt) {
   p.roll += (rollTarget - p.roll) * (1 - Math.exp(-3.4 * t));
   const rollRate = (p.roll - rollBefore) / Math.max(t, 0.001);
 
+  // engine torque: a big propeller at full power and low speed tries to
+  // roll the airframe against its rotation; the ailerons shrug it off
+  // as speed builds, but on a slow climb-out it needs a touch of stick
+  if (p.airborne) {
+    p.roll -= (p.throttle - 0.25) * 0.10 * (42 / Math.max(p.speed, 26)) * t;
+  }
+
+  // flaps travel: deploying them balloons the aeroplane upward for a
+  // moment (and pitches the nose), retracting lets it sink back
+  if (p.flaps !== p.flapsPrev) {
+    p.flapTransient = p.flaps ? 1 : -0.7;
+    p.flapsPrev = p.flaps;
+  }
+  p.flapTransient *= Math.exp(-1.7 * t);
+
   p.attVel += ((input.pitch * 0.8) - p.attVel) * Math.min(1, 5.2 * t);
   p.att += p.attVel * t;
   // longitudinal stability: left alone the nose settles back toward the path
@@ -61,7 +77,7 @@ export function stepPlane(p, input, dt, groundAt) {
   const aoa = p.att - p.pitch;
   p.aoa = aoa;
   let liftN = (p.speed * p.speed) / (TRIM_SPEED * TRIM_SPEED)
-    * clamp(1 + aoa * 4.2 + (p.flaps ? 0.48 : 0), 0.3, 2.6);
+    * clamp(1 + aoa * 4.2 + (p.flaps ? 0.48 : 0) + p.flapTransient * 0.30, 0.3, 2.6);
   if (agl < 15 && p.airborne) liftN += (1 - agl / 15) * 0.14; // ground-effect cushion
   p.loadFactor = liftN / Math.max(0.35, Math.cos(p.roll));
 
@@ -96,7 +112,8 @@ export function stepPlane(p, input, dt, groundAt) {
   const parasite = 2.1 + 0.0068 * p.speed * p.speed;
   const induced = 3.1 * liftN * liftN * (42 / Math.max(p.speed, 24));
   const gearDrag = p.gearDown ? 1.5 : 0;
-  const accel = thrust - parasite - induced - gearDrag - G * Math.sin(p.pitch) * 0.92;
+  const flapDrag = p.flaps ? 1.15 : 0;
+  const accel = thrust - parasite - induced - gearDrag - flapDrag - G * Math.sin(p.pitch) * 0.92;
   p.speed = clamp(p.speed + accel * t, 0, 118);
 
   // --- the air itself moves: ridge lift on windward slopes, gentle gusts ---
@@ -128,6 +145,7 @@ export function stepPlane(p, input, dt, groundAt) {
     const hard = -p.vy;
     const onRunwayBench = Math.abs(p.x) < 60 && Math.abs(p.z - 1750) < 640 && ground < 20;
     if (onRunwayBench && p.gearDown && hard < 7.5 && p.speed < 62 && Math.abs(p.roll) < 0.22) {
+      if (p.airborne) p.gearSpringVel -= Math.min(hard, 9) * 0.30; // the oleo takes the arrival
       p.onGround = true;
       p.airborne = false;
       p.vy = 0;
@@ -140,6 +158,7 @@ export function stepPlane(p, input, dt, groundAt) {
       p.damage = 100;
     } else {
       p.damage = Math.min(100, p.damage + hard * 2.4);
+      p.gearSpringVel -= Math.min(hard, 9) * 0.18;
       p.vy = Math.abs(p.vy) * 0.25;
       p.y = floor + 0.5;
       if (p.damage >= 100) p.crashed = true;
@@ -148,6 +167,10 @@ export function stepPlane(p, input, dt, groundAt) {
     p.onGround = false;
     p.airborne = true;
   }
+
+  // landing-gear oleo spring: compresses on arrival, settles with a wobble
+  p.gearSpringVel += (-26 * p.gearSpring - 5.2 * p.gearSpringVel) * t;
+  p.gearSpring = clamp(p.gearSpring + p.gearSpringVel * t, -0.6, 0.3);
   return p;
 }
 

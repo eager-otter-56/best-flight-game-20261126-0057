@@ -745,10 +745,19 @@ export function createGLWorld(canvas, { trees, town, clouds }) {
         plane.y + uP[1] * 1.95 + f[1] * 0.5,
         plane.z + uP[2] * 1.95 + f[2] * 0.5,
       ];
+      // the pilot's head is alive: engine vibration through the seat, a
+      // sink into the cushion as G builds, and a shudder in rough air
+      const vib = 0.018 + plane.throttle * 0.045 + Math.min(0.05, Math.abs(plane.verticalAir || 0) * 0.012);
+      const settle = Math.max(-0.04, Math.min(0.20, (plane.loadFactor - 1) * 0.10));
+      eye[0] += Math.sin(t * 39.7) * vib * 0.6 - uP[0] * settle;
+      eye[1] += Math.sin(t * 44.3) * vib - uP[1] * settle;
+      eye[2] += Math.cos(t * 36.1) * vib * 0.6 - uP[2] * settle;
       view = lookAt(eye, [eye[0] + f[0], eye[1] + f[1], eye[2] + f[2]], uP);
       fwd = f;
     } else {
       eye = [plane.x - cf[0] * 30, plane.y - cf[1] * 30 + 7.5, plane.z - cf[2] * 30];
+      // a breath of engine vibration reaches the chase camera too
+      eye[1] += Math.sin(t * 41.3) * 0.03 * (0.4 + plane.throttle * 0.6);
       // aim mostly where the aeroplane actually points, not where the
       // smoothed chase heading has got to — turns feel answered at once
       const aim = [
