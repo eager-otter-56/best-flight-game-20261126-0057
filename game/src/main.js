@@ -52,21 +52,31 @@ function startMission(id) {
   audio.start();
 }
 
-// chase-camera orientation with a little spring in it: the camera settles
-// onto a new heading a beat after the aeroplane does, so turns feel weighted
-const camSm = { heading: 0, pitch: 0, roll: 0, ready: false };
+// chase-camera orientation on critically damped springs, with feelers
+// into the turn: the heading target LEADS the aeroplane by a slice of
+// its yaw rate, so the camera is already swinging as the turn develops
+// instead of chasing it; and the camera takes only ~55% of the bank, so
+// the horizon stays readable and the aeroplane stays centred in frame
+const camSm = { heading: 0, pitch: 0, roll: 0, hVel: 0, pVel: 0, rVel: 0, ready: false };
+function springAxis(cur, vel, target, omega, dt) {
+  const acc = omega * omega * (target - cur) - 2 * omega * vel;
+  vel += acc * dt;
+  cur += vel * dt;
+  return [cur, vel];
+}
 function smoothedPlane(dt) {
   if (!camSm.ready) {
-    camSm.heading = plane.heading; camSm.pitch = plane.pitch; camSm.roll = plane.roll;
+    camSm.heading = plane.heading; camSm.pitch = plane.pitch; camSm.roll = plane.roll * 0.55;
+    camSm.hVel = 0; camSm.pVel = 0; camSm.rVel = 0;
     camSm.ready = true;
   }
-  const k = 1 - Math.exp(-9.5 * dt);
-  let dh = plane.heading - camSm.heading;
+  const hTarget = plane.heading + (plane.yawRate || 0) * 0.22;
+  let dh = hTarget - camSm.heading;
   while (dh > Math.PI) dh -= Math.PI * 2;
   while (dh < -Math.PI) dh += Math.PI * 2;
-  camSm.heading += dh * k;
-  camSm.pitch += (plane.pitch - camSm.pitch) * k;
-  camSm.roll += (plane.roll - camSm.roll) * (1 - Math.exp(-11 * dt));
+  [camSm.heading, camSm.hVel] = springAxis(camSm.heading, camSm.hVel, camSm.heading + dh, 7.5, dt);
+  [camSm.pitch, camSm.pVel] = springAxis(camSm.pitch, camSm.pVel, plane.pitch, 8.5, dt);
+  [camSm.roll, camSm.rVel] = springAxis(camSm.roll, camSm.rVel, plane.roll * 0.55, 6.5, dt);
   return { ...plane, heading: camSm.heading, pitch: camSm.pitch, roll: camSm.roll };
 }
 

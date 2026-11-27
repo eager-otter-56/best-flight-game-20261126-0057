@@ -755,26 +755,27 @@ export function createGLWorld(canvas, { trees, town, clouds }) {
       view = lookAt(eye, [eye[0] + f[0], eye[1] + f[1], eye[2] + f[2]], uP);
       fwd = f;
     } else {
-      eye = [plane.x - cf[0] * 30, plane.y - cf[1] * 30 + 7.5, plane.z - cf[2] * 30];
+      eye = [plane.x - cf[0] * 25, plane.y - cf[1] * 25 + 6.5, plane.z - cf[2] * 25];
       // a breath of engine vibration reaches the chase camera too
       eye[1] += Math.sin(t * 41.3) * 0.03 * (0.4 + plane.throttle * 0.6);
       // aim mostly where the aeroplane actually points, not where the
       // smoothed chase heading has got to — turns feel answered at once
       const aim = [
-        cf[0] * 0.35 + f[0] * 0.65,
-        cf[1] * 0.35 + f[1] * 0.65,
-        cf[2] * 0.35 + f[2] * 0.65,
+        cf[0] * 0.15 + f[0] * 0.85,
+        cf[1] * 0.15 + f[1] * 0.85,
+        cf[2] * 0.15 + f[2] * 0.85,
       ];
       const center = [plane.x + aim[0] * 40, plane.y + aim[1] * 40, plane.z + aim[2] * 40];
       let rx = -cf[2]; let rz = cf[0];
       const rl = Math.hypot(rx, rz) || 1; rx /= rl; rz /= rl;
-      const A = camPlane.roll * 0.55;
+      const A = camPlane.roll; // main.js already delivers the partial (55%) camera bank
       const up = [rx * Math.sin(A), Math.cos(A), rz * Math.sin(A)];
       view = lookAt(eye, center, up);
       fwd = cf;
     }
+    // the field of view WIDENS with speed — the classic speed sensation
     const fovScale = 1 + Math.max(0, Math.min(0.30, (plane.speed - 38) / 220));
-    const fovY = 2 * Math.atan(Math.tan(0.541) / fovScale);
+    const fovY = 2 * Math.atan(Math.tan(0.541) * fovScale);
     const vp = multiply(perspective(fovY, W / H, 0.5, 12000), view);
     lastVP = vp; lastCamPos = eye; lastFwd = fwd;
 

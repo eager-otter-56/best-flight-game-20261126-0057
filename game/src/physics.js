@@ -47,6 +47,11 @@ export function stepPlane(p, input, dt, groundAt) {
   if (input.throttleUp) p.throttle = clamp(p.throttle + 0.55 * t, 0, 1);
   if (input.throttleDown) p.throttle = clamp(p.throttle - 0.55 * t, 0, 1);
 
+  // stick shaping: a soft centre for precision, full authority at the stops
+  const curve = (v) => Math.sign(v) * Math.pow(Math.abs(v), 1.35);
+  const stickRoll = curve(clamp(input.roll, -1, 1));
+  const stickPitch = curve(clamp(input.pitch, -1, 1));
+
   // --- lateral-directional dynamics, after JSBSim's coefficient build-up ---
   // State: sideslip beta (kept in p.slip), roll rate, yaw rate, bank. The
   // aileron commands roll RATE, not bank angle: centre the stick and the
@@ -68,9 +73,9 @@ export function stepPlane(p, input, dt, groundAt) {
   const s2 = vRef * vRef;     // stiffness / control derivatives ~ v^2
   const Yb = -0.14 * s1;      // side-force damping
   const Lb = -7.5 * s2;       // dihedral effect: roll due to sideslip
-  const Lp = -8.7 * s1;       // roll damping (roll subsidence)
+  const Lp = -10.5 * s1;      // roll damping (roll subsidence)
   const Lr = 2.2 * s1;        // roll due to yaw rate
-  const Lda = 13.0 * s2;      // aileron power, per unit stick
+  const Lda = 19.0 * s2;      // aileron power, per unit stick (sporty airframe: ~100 deg/s)
   const Nb = 7.3 * s2;        // weathercock stability (the fin)
   const Np = -0.36 * s1;      // yaw due to roll rate
   const Nr = -1.9 * s1;       // yaw damping (the fin again)
@@ -87,9 +92,9 @@ export function stepPlane(p, input, dt, groundAt) {
     const rr = p.yawRate;
     const sinR = Math.sin(p.roll);
     const betaDot = Yb * beta + (G / Math.max(p.speed, 18)) * sinR * (1 + 0.35 * sinR * sinR) - rr;
-    let pDot = Lb * beta + Lp * pr + Lr * rr + Lda * input.roll + torque;
+    let pDot = Lb * beta + Lp * pr + Lr * rr + Lda * stickRoll + torque;
     if (p.stall) pDot += Math.sin(p.t * 1.9) * 2.0; // a wing drops at the break
-    const rDot = Nb * beta + Np * pr + Nr * rr + Nda * input.roll + pFactor;
+    const rDot = Nb * beta + Np * pr + Nr * rr + Nda * stickRoll + pFactor;
     p.slip = clamp(beta + betaDot * h, -0.5, 0.5);
     p.rollRate = pr + pDot * h;
     p.yawRate = rr + rDot * h;
@@ -112,8 +117,8 @@ export function stepPlane(p, input, dt, groundAt) {
   p.flapTransient *= Math.exp(-1.7 * t);
 
   // the elevator's bite scales with dynamic pressure too: mushy when slow
-  const effP = clamp(0.55 + 0.45 * s2, 0.55, 1.3);
-  p.attVel += ((input.pitch * 0.8 * effP) - p.attVel) * Math.min(1, 5.2 * t);
+  const effP = clamp(0.65 + 0.35 * s2, 0.65, 1.3);
+  p.attVel += ((stickPitch * 0.8 * effP) - p.attVel) * Math.min(1, 6.2 * t);
   p.att += p.attVel * t;
   // longitudinal stability: left alone the nose settles back toward the path
   p.attVel += (p.pitch - p.att) * 0.55 * t;
@@ -147,8 +152,8 @@ export function stepPlane(p, input, dt, groundAt) {
   // which settles within a few percent of the coordinated g·tan(bank)/v ---
 
   // --- energy: thrust against drag, gravity taxing every climb ---
-  const thrust = p.throttle * 33 * (p.fuel > 0 ? 1 : 0);
-  const parasite = 2.1 + 0.0068 * p.speed * p.speed;
+  const thrust = p.throttle * 34 * (p.fuel > 0 ? 1 : 0);
+  const parasite = 2.1 + 0.0075 * p.speed * p.speed;
   const induced = 3.1 * liftN * liftN * (42 / Math.max(p.speed, 24));
   const gearDrag = p.gearDown ? 1.5 : 0;
   const flapDrag = p.flaps ? 1.15 : 0;
