@@ -48,7 +48,7 @@ export function stepPlane(p, input, dt, groundAt) {
   if (input.throttleDown) p.throttle = clamp(p.throttle - 0.55 * t, 0, 1);
 
   // stick shaping: a soft centre for precision, full authority at the stops
-  const curve = (v) => Math.sign(v) * Math.pow(Math.abs(v), 1.35);
+  const curve = (v) => Math.sign(v) * Math.pow(Math.abs(v), 1.5);
   const stickRoll = curve(clamp(input.roll, -1, 1));
   const stickPitch = curve(clamp(input.pitch, -1, 1));
 
@@ -73,9 +73,10 @@ export function stepPlane(p, input, dt, groundAt) {
   const s2 = vRef * vRef;     // stiffness / control derivatives ~ v^2
   const Yb = -0.14 * s1;      // side-force damping
   const Lb = -7.5 * s2;       // dihedral effect: roll due to sideslip
-  const Lp = -10.5 * s1;      // roll damping (roll subsidence)
+  const Lp = -9.2 * s1;       // roll damping (roll subsidence — a touch
+                              // heavier than v7: inertia you can feel)
   const Lr = 2.2 * s1;        // roll due to yaw rate
-  const Lda = 19.0 * s2;      // aileron power, per unit stick (sporty airframe: ~100 deg/s)
+  const Lda = 12.8 * s2;      // aileron power, per unit stick (~65 deg/s)
   const Nb = 7.3 * s2;        // weathercock stability (the fin)
   const Np = -0.36 * s1;      // yaw due to roll rate
   const Nr = -1.9 * s1;       // yaw damping (the fin again)
