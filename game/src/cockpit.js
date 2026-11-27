@@ -113,7 +113,7 @@ export function drawCockpit(ctx, w, h, plane, t) {
   ctx.stroke();
   ctx.fillStyle = '#ffcf5e';
   ctx.beginPath();
-  ctx.arc(xs[1] + (plane.slip || 0) * r * 0.3, ballY - 3, 3.6, 0, Math.PI * 2);
+  ctx.arc(xs[1] + Math.max(-0.3, Math.min(0.3, plane.slip || 0)) * r * 1.1, ballY - 3, 3.6, 0, Math.PI * 2);
   ctx.fill();
 
   // 3 altimeter (ft), one revolution = 1000 ft

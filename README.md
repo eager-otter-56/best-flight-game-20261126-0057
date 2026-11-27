@@ -44,7 +44,10 @@ altimeter, heading, vertical speed, throttle, fuel, hull — is live.
   network requests. Serve it with `node serve.ts` and open
   http://localhost:8080, or any static file server.
   - `game/src/terrain.js` — the island heightfield, runway, ring course, scenery
-  - `game/src/physics.js` — the flight model: lift, stall, fuel, damage,
+  - `game/src/physics.js` — the flight model: a coefficient build-up
+    lateral-directional model in the JSBSim style (ailerons command roll
+    rate, so a bank holds hands-off; sideslip, dihedral effect, adverse
+    yaw and Dutch roll included), plus lift, stall with a wing drop,
     engine torque, flap-travel ballooning and a sprung landing gear
   - `game/src/glworld.js` — the WebGL world: terrain mesh with real-time sun
     shadows, faceted town and trees, the 3D aeroplane, chase and cockpit cameras

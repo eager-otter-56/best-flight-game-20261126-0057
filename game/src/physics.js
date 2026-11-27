@@ -15,6 +15,7 @@ export function createPlane() {
     heading: 0, // radians, 0 = north (-z), clockwise positive
     pitch: 0, roll: 0,
     att: 0, attVel: 0, // nose attitude and its rate
+    rollRate: 0, yawRate: 0, // body rates from the lateral-directional model
     slip: 0, aoa: 0, loadFactor: 1, verticalAir: 0, t: 0,
     gearSpring: 0, gearSpringVel: 0, flapTransient: 0, flapsPrev: 0,
     speed: 52, // m/s
@@ -46,17 +47,60 @@ export function stepPlane(p, input, dt, groundAt) {
   if (input.throttleUp) p.throttle = clamp(p.throttle + 0.55 * t, 0, 1);
   if (input.throttleDown) p.throttle = clamp(p.throttle - 0.55 * t, 0, 1);
 
-  // --- control response with inertia: the airframe takes time to answer ---
-  const rollTarget = input.roll * 1.02;
-  const rollBefore = p.roll;
-  p.roll += (rollTarget - p.roll) * (1 - Math.exp(-3.4 * t));
-  const rollRate = (p.roll - rollBefore) / Math.max(t, 0.001);
-
-  // engine torque: a big propeller at full power and low speed tries to
-  // roll the airframe against its rotation; the ailerons shrug it off
-  // as speed builds, but on a slow climb-out it needs a touch of stick
-  if (p.airborne) {
-    p.roll -= (p.throttle - 0.25) * 0.10 * (42 / Math.max(p.speed, 26)) * t;
+  // --- lateral-directional dynamics, after JSBSim's coefficient build-up ---
+  // State: sideslip beta (kept in p.slip), roll rate, yaw rate, bank. The
+  // aileron commands roll RATE, not bank angle: centre the stick and the
+  // rolling stops, but the bank STAYS — only the slow spiral mode coaxes
+  // it back, over a minute or more. Sideslip couples everything: a banked
+  // aeroplane slides toward its low wing, the fin weathercocks the nose
+  // into the relative wind, dihedral rolls against the slip — and the
+  // lightly damped weave that falls out of the loop is the Dutch roll.
+  // The derivatives below are dimensional (per radian), taken from the
+  // classic light-aeroplane data sets JSBSim ships, scaled from the
+  // 52 m/s trim by dynamic pressure: stiffness and control power with
+  // v^2, damping with v. Measured on this airframe: roll subsidence
+  // tau ~0.12 s, steady roll ~65 deg/s, Dutch roll period ~2 s damped
+  // in a couple of cycles, and a spiral mode so slow the bank is still
+  // within a few degrees after 30 s hands-off — it settles into a
+  // gentle sustained turn rather than levelling itself.
+  const vRef = Math.max(p.speed, 18) / TRIM_SPEED;
+  const s1 = vRef;            // damping derivatives scale ~ v
+  const s2 = vRef * vRef;     // stiffness / control derivatives ~ v^2
+  const Yb = -0.14 * s1;      // side-force damping
+  const Lb = -7.5 * s2;       // dihedral effect: roll due to sideslip
+  const Lp = -8.7 * s1;       // roll damping (roll subsidence)
+  const Lr = 2.2 * s1;        // roll due to yaw rate
+  const Lda = 13.0 * s2;      // aileron power, per unit stick
+  const Nb = 7.3 * s2;        // weathercock stability (the fin)
+  const Np = -0.36 * s1;      // yaw due to roll rate
+  const Nr = -1.9 * s1;       // yaw damping (the fin again)
+  const Nda = -0.84 * s2;     // adverse yaw, per unit stick
+  // engine torque as a rolling moment, and P-factor as a yawing moment:
+  // both fight through the same damping as everything else now
+  const torque = p.airborne ? -(p.throttle - 0.55) * 0.38 * (42 / Math.max(p.speed, 26)) : 0;
+  const pFactor = -(p.throttle - 0.35) * 0.05 * (56 / Math.max(p.speed, 28));
+  const steps = Math.max(1, Math.ceil(t / 0.0167));
+  const h = t / steps;
+  for (let i = 0; i < steps; i++) {
+    const beta = p.slip;
+    const pr = p.rollRate;
+    const rr = p.yawRate;
+    const sinR = Math.sin(p.roll);
+    const betaDot = Yb * beta + (G / Math.max(p.speed, 18)) * sinR * (1 + 0.35 * sinR * sinR) - rr;
+    let pDot = Lb * beta + Lp * pr + Lr * rr + Lda * input.roll + torque;
+    if (p.stall) pDot += Math.sin(p.t * 1.9) * 2.0; // a wing drops at the break
+    const rDot = Nb * beta + Np * pr + Nr * rr + Nda * input.roll + pFactor;
+    p.slip = clamp(beta + betaDot * h, -0.5, 0.5);
+    p.rollRate = pr + pDot * h;
+    p.yawRate = rr + rDot * h;
+    if (p.onGround) {
+      p.rollRate *= Math.exp(-6 * h);
+      p.yawRate *= Math.exp(-4 * h);
+      p.slip *= Math.exp(-4 * h);
+    }
+    p.roll = clamp(p.roll + p.rollRate * h, -1.25, 1.25);
+    if (p.onGround) p.roll *= Math.exp(-3 * h); // the gear settles wings-level
+    p.heading += p.yawRate * h;
   }
 
   // flaps travel: deploying them balloons the aeroplane upward for a
@@ -67,7 +111,9 @@ export function stepPlane(p, input, dt, groundAt) {
   }
   p.flapTransient *= Math.exp(-1.7 * t);
 
-  p.attVel += ((input.pitch * 0.8) - p.attVel) * Math.min(1, 5.2 * t);
+  // the elevator's bite scales with dynamic pressure too: mushy when slow
+  const effP = clamp(0.55 + 0.45 * s2, 0.55, 1.3);
+  p.attVel += ((input.pitch * 0.8 * effP) - p.attVel) * Math.min(1, 5.2 * t);
   p.att += p.attVel * t;
   // longitudinal stability: left alone the nose settles back toward the path
   p.attVel += (p.pitch - p.att) * 0.55 * t;
@@ -96,16 +142,9 @@ export function stepPlane(p, input, dt, groundAt) {
   p.pitch += clamp(gammaRate, -1.4, 1.4) * t;
   p.pitch = clamp(p.pitch, -1.05, 0.8);
 
-  // --- the turn: g·tan(bank)/v, plus adverse yaw and a touch of P-factor ---
-  // heading is a true bearing: forward = (sin h, -cos h), so a right bank
-  // (roll > 0) must INCREASE it. (A minus here mirrors the whole world
-  // against the compass the pilot is steering by.)
-  const yawRate = (G * Math.tan(p.roll) / Math.max(p.speed, 24)) * 1.45;
-  p.heading += yawRate * t;
-  p.heading -= rollRate * 0.055 * t; // adverse yaw drags the nose out of the roll
-  p.heading -= (p.throttle - 0.35) * 0.012 * t * (56 / Math.max(p.speed, 28));
-  const slipTarget = clamp((rollTarget - p.roll) * 1.1, -1, 1);
-  p.slip += (slipTarget - p.slip) * (1 - Math.exp(-2.6 * t));
+  // --- the turn itself falls out of the lateral model above: heading was
+  // integrated from the yaw rate the fin, the slip and the bank produce,
+  // which settles within a few percent of the coordinated g·tan(bank)/v ---
 
   // --- energy: thrust against drag, gravity taxing every climb ---
   const thrust = p.throttle * 33 * (p.fuel > 0 ? 1 : 0);
@@ -139,8 +178,12 @@ export function stepPlane(p, input, dt, groundAt) {
   p.fuel = Math.max(0, p.fuel - (0.16 + p.throttle * 0.85) * t);
 
   // --- ground contact (same strip rules as always) ---
+  // weight on wheels: once she has settled, gusts and ground-effect lift
+  // cannot pluck her off the runway again — she stays pinned until the
+  // wing is genuinely flying (lift well past weight)
   const floor = ground + 3.2;
-  if (p.y <= floor) {
+  const touching = p.y <= floor || (p.onGround && p.y <= floor + 0.6 && liftN < 1.3);
+  if (touching) {
     p.y = floor;
     const hard = -p.vy;
     const onRunwayBench = Math.abs(p.x) < 60 && Math.abs(p.z - 1750) < 640 && ground < 20;
